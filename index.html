@@ -53374,7 +53374,7 @@ function buildParlor() {
   candle(g, CFG.candle.x-0.7, CFG.candle.z-0.4, 1.1);
   candle(g, CFG.candle.x+0.6, CFG.candle.z-0.6, 0.9);
   candle(g, CFG.candle.x+0.1, CFG.candle.z+0.9, 1.25);
-  candle(g, -11.5, -7.5, 0.9); candle(g, 11.5, -7.5, 0.9);
+  candle(g, -8.5, -7.5, 0.9); candle(g, 11.5, -7.5, 0.9);
   candleLight = new PointLight(0xff9a3d, 14, 11, 2);
   candleLight.position.set(CFG.candle.x, 1.6, CFG.candle.z); g.add(candleLight);
   // stairs up (east side) → Conservatory
@@ -53589,7 +53589,7 @@ player.position.set(-2, 0, 5);
 
 const P = {
   flame: 1, oil: CFG.oilMax, snareCD: 0, attn: 0,
-  petals: 0, caughtTotal: 0, evHearth: 0, evMystic: 0, evEmber: 0, petalsGathered: 0,
+  petals: 0, caughtTotal: 0, evHearth: 0, evMystic: 0, evEmber: 0, petalsGathered: 0, speciesSeen: {},
   moving: false, stepT: 0,
   setFlame(i) {
     this.flame = Math.max(0, Math.min(CFG.flames.length - 1, i));
@@ -53618,6 +53618,25 @@ function spawnSpots() {
   if (roomName === 'cellar') return [[-6,-4],[5.5,2.5],[-0.5,6.8],[8,-6],[-8.5,5.5]];
   return [[-8,-6],[7,-5],[-7,4],[8,5],[0,-7]];
 }
+/* species: [name, field note] */
+const SPECIES_INFO = {
+  gloom: ["Gloom", "the common shadow. Curious, cautious, kind."],
+  zephyr: ["Zephyr", "a quicksilver shadow — fast and flighty, but it snares like any other."],
+  sage: ["Sage", "an old, slow shadow. Patient with bright light; drinks light twice as fast."],
+};
+function spawnMix(mix) {
+  for (const [sp, pale] of mix) {
+    const gl = new Gloom(pale);
+    if (sp !== 'gloom') gl.applySpecies(sp);
+  }
+}
+function speciesCodex() {
+  let h = '';
+  for (const sp of ['gloom', 'zephyr', 'sage']) {
+    if (P.speciesSeen[sp]) { const i = SPECIES_INFO[sp]; h += '<li>✦ ' + i[0] + ' — <i>' + i[1] + '</i></li>'; }
+  }
+  return h || '<li><i>None yet — snare a Gloomling.</i></li>';
+}
 class Gloom {
   constructor(pale) {
     this.g = new Group();
@@ -53634,6 +53653,11 @@ class Gloom {
     this.g.add(this.eL, this.eR);
     this.halo = glowSprite(pale ? 0x6a9adf : 0x6a4adf, r * 4.2, 0.5);
     this.halo.position.y = r + 0.1; this.g.add(this.halo);
+    // species traits (defaults = common gloom; applySpecies overrides)
+    this.species = 'gloom'; this.baseScale = 1;
+    this.wanderSpd = 1.15; this.lureSpd = 1.7; this.spdMul = 1;
+    this.fearAt = 0.55; this.feedMul = 1; this.orbitD = 2.4;
+    this.retMin = 2.5; this.retSpan = 3;
     const spots = spawnSpots(), s = spots[(Math.random()*spots.length)|0];
     this.g.position.set(s[0] + (Math.random()-.5)*2, 0, s[1] + (Math.random()-.5)*2);
     scene.add(this.g);
@@ -53653,10 +53677,26 @@ class Gloom {
     this.halo.material.color.set(0x8a1a3a);
     hint("Your Gloomling's Glow went out — it went feral! Snare it again, gently.");
   }
+  applySpecies(sp) {
+    this.species = sp;
+    if (sp === 'zephyr') {
+      // quicksilver darter: fast, erratic, keeps its distance
+      this.baseScale = 0.72;
+      this.halo.material.color.set(0x8adfff);
+      this.wanderSpd = 2.6; this.lureSpd = 3.2; this.spdMul = 1.9;
+      this.orbitD = 3.1; this.retMin = 0.7; this.retSpan = 1.2;
+    } else if (sp === 'sage') {
+      // old slow shadow: patient with light, drinks it twice as fast
+      this.baseScale = 1.32;
+      this.halo.material.color.set(0xb08aff);
+      this.wanderSpd = 0.65; this.lureSpd = 1.0; this.spdMul = 0.7;
+      this.fearAt = 0.9; this.feedMul = 2.0; this.orbitD = 2.0;
+    }
+  }
   update(dt, t) {
     const p = this.g.position;
     const w = 1 + 0.09 * Math.sin(t*3.2 + this.phase);
-    this.body.scale.set(1/Math.sqrt(w), w, 1/Math.sqrt(w));
+    this.body.scale.set(this.baseScale/Math.sqrt(w), this.baseScale*w, this.baseScale/Math.sqrt(w));
     this.halo.material.opacity = 0.4 + 0.14*Math.sin(t*2.1 + this.phase);
     if (this.state === 'wild' || this.state === 'feral') this.updateWild(dt, t);
     else this.updateKept(dt, t);
@@ -53692,18 +53732,18 @@ class Gloom {
       const toP = new Vector3().subVectors(player.position, p); toP.y = 0;
       const d = toP.length(), f = CFG.flames[P.flame], lr = flameRadius();
       if (d < lr + 1.5) {
-        if (f <= 0.55) {
-          if (d > 2.4) { dir.copy(toP).normalize(); speed = 1.7; }
+        if (f <= this.fearAt) {
+          if (d > this.orbitD) { dir.copy(toP).normalize(); speed = this.lureSpd; }
           else { dir.set(Math.sin(t+this.phase), 0, Math.cos(t*0.8+this.phase)).multiplyScalar(0.35); speed = 0.8; }
           if (!seen.lure && d < 5) { seen.lure = true; hint("It's drawn to your dim flame… hold still, Keeper."); }
         } else {
-          dir.copy(toP).normalize().negate(); speed = f > 0.85 ? 3.4 : 2.3;
+          dir.copy(toP).normalize().negate(); speed = (f > 0.85 ? 3.4 : 2.3) * this.spdMul;
           if (!seen.scare && d < 6) { seen.scare = true; hint("Too bright! It fears the blaze — dim with Q."); }
         }
       } else {
         this.retarget -= dt;
-        if (this.retarget <= 0 || p.distanceTo(this.target) < 0.6) { this.target = this.randTarget(); this.retarget = 2.5+Math.random()*3; }
-        dir.subVectors(this.target, p).normalize(); speed = 1.15;
+        if (this.retarget <= 0 || p.distanceTo(this.target) < 0.6) { this.target = this.randTarget(); this.retarget = this.retMin + Math.random()*this.retSpan; }
+        dir.subVectors(this.target, p).normalize(); speed = this.wanderSpd;
       }
     }
     this.vel.lerp(dir.multiplyScalar(speed), 1 - Math.pow(0.001, dt));
@@ -53726,7 +53766,7 @@ class Gloom {
       this.glow = Math.max(0, this.glow - CFG.glowDecay * dt);
       const zone = feedZoneAt(p.x, p.z) || feedZoneAt(player.position.x, player.position.z);
       if (zone && this.glow < CFG.glowMax) {
-        this.glow = Math.min(CFG.glowMax, this.glow + CFG.glowFeed * dt);
+        this.glow = Math.min(CFG.glowMax, this.glow + CFG.glowFeed * this.feedMul * dt);
         if (!seen.fed) { seen.fed = true; hint("Basking in the light… its Glow is rising."); sfxFeed(); }
         if (this.glow >= CFG.glowMax) evolve(this, zone.type);
       } else if (this.glow < 25 && !seen.low) { seen.low = true; hint("Its Glow is fading — feed it light soon, or the dark will take it."); }
@@ -53782,7 +53822,7 @@ function evolve(g, zoneType) {
   const col = mystic ? 0x9adfff : (ember ? 0xff7a3d : 0xffd98a);
   burst(p, col, 90, 4.2); burst(p, ember ? 0xff4a1a : (mystic ? 0x6a9adf : 0x9a7bff), 50, 2.6);
   sfxEvolve();
-  g.body.scale.multiplyScalar(1.32);
+  g.baseScale *= 1.32;
   g.halo.material.color.set(col);
   g.halo.scale.set(g.r*7, g.r*7, 1);
   const core = new Mesh(new SphereGeometry(g.r*0.42, 12, 10), mystic ? M.mystCore : (ember ? M.emberCore : M.wispCore));
@@ -53819,6 +53859,11 @@ function snare() {
       g.state = 'kept'; g.glow = Math.max(g.glow, 35);
       g.eyeMat.color.set(0xd8ccff); g.halo.material.color.set(g.pale ? 0x6a9adf : 0x6a4adf);
       caught++; P.caughtTotal++;
+      if (!P.speciesSeen[g.species]) {
+        P.speciesSeen[g.species] = true;
+        const si = SPECIES_INFO[g.species];
+        hint("New species recorded: " + si[0] + " — " + si[1], 5);
+      }
       burst(g.g.position, 0x9a7bff, 30, 2.4);
     }
   }
@@ -53852,11 +53897,12 @@ function loadRoom(name, spawn) {
   amb.intensity = dark ? 0.16 : 0.55;
   hemi.intensity = dark ? 0.12 : 0.35;
   moonFill.intensity = dark ? 0.04 : 0.35;
-  if (name === 'parlor') { buildParlor(); for (let i = 0; i < 4; i++) new Gloom(false); }
-  else if (name === 'conservatory') { buildConservatory(); for (let i = 0; i < 3; i++) new Gloom(true); }
+  if (name === 'parlor') { buildParlor(); spawnMix([['gloom',false],['gloom',false],['gloom',false],['zephyr',false]]); }
+  else if (name === 'conservatory') { buildConservatory(); spawnMix([['gloom',true],['gloom',true],['sage',true]]); }
   else {
     buildCellar();
-    for (let i = 0; i < 3; i++) { const gl = new Gloom(false); gl.halo.material.color.set(0xcc6a2a); }
+    spawnMix([['gloom',false],['gloom',false],['zephyr',false]]);
+    for (const gl of glooms) if (gl.species === 'gloom') gl.halo.material.color.set(0xcc6a2a);
     if (!seen.cellar) { seen.cellar = true; setTimeout(() => { if (state === 'play') hint("The Cellar… ember light feeds Glow and refills oil. Evolve one down here.", 6); }, 900); }
   }
   player.position.set(spawn.x, 0, spawn.z);
@@ -53948,6 +53994,8 @@ function toggleCodex(force) {
       '<li>☾ Mystic Wisps raised: <b>' + P.evMystic + '</b></li>' +
       '<li>🔥 Ember Wisps raised: <b>' + P.evEmber + '</b></li>' +
       '<li>✿ Moonpetals gathered: <b>' + P.petalsGathered + '</b></li>' +
+      '<li style="margin-top:8px;color:#9d94c7">Species recorded:</li>' +
+      speciesCodex() +
       '<li style="margin-top:10px;color:#9d94c7"><i>"Feed them light, Keeper, and the manor remembers."</i></li>';
   }
   cx.classList.toggle('hidden', !show);
