@@ -85,7 +85,7 @@
     <ul>
       <li>The manor's shadows are alive — and shy. They crave <b>a little light</b>, but <b>fear a lot</b>. Dim your flame to lure one close.</li>
       <li>Press <kbd>Space</kbd> to <b>Kindle Snare</b> it (costs oil). Carry it to the <b>candle corner</b> — candlelight fills its <b>Glow</b>, and a full Glow means <b>evolution</b>.</li>
-      <li>Beware: a <b>blazing</b> lantern draws <b>gloom attention</b>… and something may come to investigate. The east stairs climb to the moonlit <b>Conservatory</b>.</li>
+      <li>Beware: a <b>blazing</b> lantern draws <b>gloom attention</b>… and something may come to investigate. The east stairs climb to the moonlit <b>Conservatory</b>; the west stairs descend to the ember-lit <b>Cellar</b>.</li>
     </ul>
     <button class="btn" id="beginbtn">Enter the manor</button>
   </div>
@@ -53223,8 +53223,8 @@ scene.fog = new FogExp2(0x0a0a14, 0.03);
 const camera = new PerspectiveCamera(50, innerWidth/innerHeight, 0.1, 140);
 const CAM_OFF = new Vector3(0, 13.5, 9.5);
 
-scene.add(new AmbientLight(0x2a2a4a, 0.55));
-scene.add(new HemisphereLight(0x3a3a6a, 0x0a0a10, 0.35));
+const amb = new AmbientLight(0x2a2a4a, 0.55); scene.add(amb);
+const hemi = new HemisphereLight(0x3a3a6a, 0x0a0a10, 0.35); scene.add(hemi);
 const moonFill = new DirectionalLight(0x8fa8ff, 0.35); moonFill.position.set(-6, 12, -14); scene.add(moonFill);
 
 addEventListener('resize', () => {
@@ -53261,6 +53261,7 @@ const M = {
   eyeRed: new MeshBasicMaterial({ color: 0xff4a5a }),
   wispCore: new MeshBasicMaterial({ color: 0xffd98a }),
   mystCore: new MeshBasicMaterial({ color: 0x9adfff }),
+  emberCore: new MeshBasicMaterial({ color: 0xff8a4d }),
   candle: new MeshStandardMaterial({ color: 0xe8dcc0, roughness: .6 }),
   bookCols: [0x7a2e2e, 0x2e5a7a, 0x4a7a2e, 0x6a4a8a, 0x8a6a2e].map(c => new MeshStandardMaterial({ color: c, roughness: .8 })),
   windowGlow: new MeshBasicMaterial({ color: 0xaac4ff, transparent: true, opacity: .9 }),
@@ -53274,7 +53275,7 @@ const M = {
 
 /* ---------- room framework ---------- */
 let roomGroup = null, colliders = [], candleFlames = [], feedZones = [], petals = [], moonbeams = [];
-let dust = null, DUSTN = 0, lecternPos = null, stairsUp = null, stairsDown = null;
+let dust = null, DUSTN = 0, lecternPos = null, triggers = [];
 let roomName = 'parlor';
 function box(parent, w, h, d, mat, x, y, z, ry) {
   const m = new Mesh(new BoxGeometry(w, h, d), mat);
@@ -53285,7 +53286,7 @@ function clearRoom() {
   if (roomGroup) { scene.remove(roomGroup); }
   roomGroup = new Group(); scene.add(roomGroup);
   colliders = []; candleFlames = []; feedZones = []; petals = []; moonbeams = [];
-  dust = null; lecternPos = null; stairsUp = null; stairsDown = null; candleLight = null;
+  dust = null; lecternPos = null; triggers = []; candleLight = null;
   for (const g of glooms) scene.remove(g.g);
   glooms.length = 0;
   for (const b of bursts) scene.remove(b.pts); bursts.length = 0;
@@ -53316,7 +53317,15 @@ function moonbeam(parent, x, z) {
 let candleLight = null;
 function buildParlor() {
   const W = CFG.roomW, D = CFG.roomD, H = CFG.wallH, g = roomGroup;
-  const floor = new Mesh(new PlaneGeometry(W, D), M.floor);
+  // parlor floor with a real opening for the cellar stairwell (west side)
+  const fshape = new Shape();
+  fshape.moveTo(-W/2, -D/2); fshape.lineTo(W/2, -D/2); fshape.lineTo(W/2, D/2); fshape.lineTo(-W/2, D/2); fshape.closePath();
+  const fhole = new Path();
+  // NOTE: ShapeGeometry maps shape-y to world -z after rotation.x=-PI/2,
+  // so the hole's y coords are negated relative to world z.
+  fhole.moveTo(-12.7, 7.7); fhole.lineTo(-9.7, 7.7); fhole.lineTo(-9.7, -3.7); fhole.lineTo(-12.7, -3.7); fhole.closePath();
+  fshape.holes.push(fhole);
+  const floor = new Mesh(new ShapeGeometry(fshape), M.floor);
   floor.rotation.x = -Math.PI/2; g.add(floor);
   box(g, W, H, 0.6, M.wall, 0, H/2, -D/2); box(g, W, H, 0.6, M.wall, 0, H/2, D/2);
   box(g, 0.6, H, D, M.wall, -W/2, H/2, 0); box(g, 0.6, H, D, M.wall, W/2, H/2, 0);
@@ -53369,13 +53378,15 @@ function buildParlor() {
   candleLight = new PointLight(0xff9a3d, 14, 11, 2);
   candleLight.position.set(CFG.candle.x, 1.6, CFG.candle.z); g.add(candleLight);
   // stairs up (east side) → Conservatory
-  buildStairs(g, 11.2, 3.2, -7.2, true);
+  buildStairs(g, 11.2, 3.2, -7.2, true, 'conservatory', { x: -9.0, z: -4.8, ry: Math.PI/2 }, "Climbing to the Conservatory…");
+  // stairs down (west side) → the Cellar
+  buildStairsDown(g, -11.2, 3.2, -7.2, 'cellar', { x: -9.0, z: -4.8, ry: Math.PI/2 }, "Descending into the Cellar…");
   makeDust(g, -5, -10, 5, 4.5, 11);
   document.getElementById('roomlab').textContent = 'The Parlor';
 }
-function buildStairs(g, x, z0, z1, up) {
+function buildStairs(g, x, z0, z1, up, to, spawn, msg) {
   if (up) {
-    // parlor: real climbable staircase, door glowing at the top
+    // climbable staircase, door glowing at the top
     const steps = 9, rise = CFG.upperY / steps;
     for (let i = 0; i < steps; i++) {
       const z = z0 + (z1 - z0) * (i / (steps - 1));
@@ -53389,16 +53400,51 @@ function buildStairs(g, x, z0, z1, up) {
     box(g, 0.3, 2.6, 0.35, M.trim, x+1.3, CFG.upperY+1.2, dz);
     const dg = glowSprite(0x9adfff, 3.2, 0.4);
     dg.position.set(x, CFG.upperY+1.2, dz); g.add(dg);
-    stairsUp = new Vector3(x, 0, dz);
+    triggers.push({ x, z: dz, to, spawn, msg });
   } else {
-    // conservatory: you arrive at the top — the door stands at floor level
+    // you arrive at the top — the door stands at floor level
     box(g, 2.6, 0.25, 0.35, M.trim, x, 2.5, z0);
     box(g, 0.3, 2.7, 0.35, M.trim, x-1.3, 1.25, z0);
     box(g, 0.3, 2.7, 0.35, M.trim, x+1.3, 1.25, z0);
     const dg = glowSprite(0xffb84d, 3.2, 0.4);
     dg.position.set(x, 1.3, z0); g.add(dg);
-    stairsDown = new Vector3(x, 0, z0);
+    triggers.push({ x, z: z0, to, spawn, msg });
   }
+}
+/* Descending stairwell: a real opening in the floor, steps going down into a
+   dark pit, ember door glowing at the bottom. The keeper rides the ramp down. */
+function buildStairsDown(g, x, zTop, zBot, to, spawn, msg) {
+  const depth = CFG.upperY, steps = 9;
+  const pitMat = new MeshStandardMaterial({ color: 0x0a0812, roughness: 1 });
+  const hx0 = x-1.5, hx1 = x+1.5, hz0 = zBot-0.5, hz1 = zTop+0.5;
+  // collar frame at floor level
+  box(g, (hx1-hx0)+0.5, 0.3, 0.5, M.trim, x, 0.15, hz0);
+  box(g, (hx1-hx0)+0.5, 0.3, 0.5, M.trim, x, 0.15, hz1);
+  box(g, 0.5, 0.3, (hz1-hz0), M.trim, hx0, 0.15, (hz0+hz1)/2);
+  box(g, 0.5, 0.3, (hz1-hz0), M.trim, hx1, 0.15, (hz0+hz1)/2);
+  // pit interior walls + pit floor
+  const pitLen = hz1-hz0, midZ = (hz0+hz1)/2;
+  box(g, 0.3, depth+0.6, pitLen, pitMat, hx0-0.15, -depth/2, midZ);
+  box(g, 0.3, depth+0.6, pitLen, pitMat, hx1+0.15, -depth/2, midZ);
+  box(g, (hx1-hx0)+0.6, depth+0.6, 0.3, pitMat, x, -depth/2, hz0-0.15);
+  box(g, (hx1-hx0)+0.6, 0.3, pitLen, pitMat, x, -depth-0.15, midZ);
+  // descending steps
+  for (let i = 0; i < steps; i++) {
+    const z = zTop + (zBot - zTop) * (i/(steps-1));
+    box(g, 2.2, 0.24, 1.35, M.wood, x, -(depth*(i+1)/steps) + 0.12, z);
+  }
+  // railings along the top
+  box(g, 0.18, 1.0, pitLen, M.woodDark, x-1.15, 0.5, midZ);
+  box(g, 0.18, 1.0, pitLen, M.woodDark, x+1.15, 0.5, midZ);
+  // ember door glowing at the bottom
+  box(g, 2.6, 0.25, 0.35, M.trim, x, -depth+2.5, zBot);
+  box(g, 0.3, 2.7, 0.35, M.trim, x-1.3, -depth+1.25, zBot);
+  box(g, 0.3, 2.7, 0.35, M.trim, x+1.3, -depth+1.25, zBot);
+  const dg = glowSprite(0xff7a3d, 3.4, 0.45);
+  dg.position.set(x, -depth+1.3, zBot); g.add(dg);
+  const pl = new PointLight(0xff7a3d, 7, 9, 2);
+  pl.position.set(x, -depth+1.5, zBot+1); g.add(pl);
+  triggers.push({ x, z: zBot, to, spawn, msg });
 }
 function makeDust(g, cx, cz, w, h, d) {
   DUSTN = 70;
@@ -53447,7 +53493,7 @@ function buildConservatory() {
   box(g, 3.4, 0.9, 1.4, M.floorStone, -9, 0.45, 7.5); addCollider(-9, 7.5, 2.0);
   box(g, 3.4, 0.9, 1.4, M.floorStone, 9, 0.45, -7.5); addCollider(9, -7.5, 2.0);
   // stairs down (west side)
-  buildStairs(g, -11.2, -7.2, 3.2, false);
+  buildStairs(g, -11.2, -7.2, 3.2, false, 'parlor', { x: 10.5, z: -5.5, ry: -Math.PI/2 }, "Descending to the Parlor…");
   // moonpetals
   for (let i = 0; i < 5; i++) spawnPetal();
   makeDust(g, 0, -6, 16, 5, 14);
@@ -53460,6 +53506,51 @@ function spawnPetal() {
   const bl = new Mesh(new OctahedronGeometry(0.28), M.petal); bl.position.y = 0.5; pg.add(bl);
   const gl = glowSprite(0xcfe8ff, 1.8, 0.75); gl.position.y = 0.5; pg.add(gl);
   petals.push({ g: pg, bl, x, z, ph: Math.random()*7, respawn: 0 });
+}
+
+/* ---------- THE CELLAR (lower level) ---------- */
+function emberCluster(parent, x, z) {
+  const g = new Group(); g.position.set(x, 0, z); parent.add(g);
+  const rock = new Mesh(new DodecahedronGeometry(0.95), new MeshStandardMaterial({ color: 0x2a1a12, roughness: 1 }));
+  rock.position.y = 0.3; rock.scale.y = 0.55; g.add(rock);
+  const cm = new MeshStandardMaterial({ color: 0xff6a2a, emissive: 0xff4a1a, emissiveIntensity: 1.5, roughness: .4 });
+  for (let i = 0; i < 4; i++) {
+    const c = new Mesh(new OctahedronGeometry(0.26 + Math.random()*0.22), cm);
+    const a = Math.random()*Math.PI*2, r = 0.25 + Math.random()*0.5;
+    c.position.set(Math.cos(a)*r, 0.7 + Math.random()*0.7, Math.sin(a)*r);
+    c.rotation.set(Math.random()*3, Math.random()*3, 0);
+    g.add(c);
+  }
+  const gl = glowSprite(0xff7a3d, 4.4, 0.55); gl.position.y = 1.1; g.add(gl);
+  const pl = new PointLight(0xff7a3d, 9, 11, 2); pl.position.set(0, 1.7, 0); g.add(pl);
+  feedZones.push({ x, z, r: 2.6, type: 'ember' });
+  addCollider(x, z, 1.0);
+}
+function buildCellar() {
+  const W = CFG.roomW, D = CFG.roomD, g = roomGroup;
+  const floor = new Mesh(new PlaneGeometry(W, D), new MeshStandardMaterial({ color: 0x232028, roughness: 1 }));
+  floor.rotation.x = -Math.PI/2; g.add(floor);
+  const wallMat = new MeshStandardMaterial({ color: 0x1b1725, roughness: 1 });
+  const H = 4.5;
+  box(g, W, H, 0.6, wallMat, 0, H/2, -D/2); box(g, W, H, 0.6, wallMat, 0, H/2, D/2);
+  box(g, 0.6, H, D, wallMat, -W/2, H/2, 0); box(g, 0.6, H, D, wallMat, W/2, H/2, 0);
+  // ceiling beams
+  for (let i = -2; i <= 2; i++) box(g, 0.4, 0.35, D, M.woodDark, i*5, H-0.2, 0);
+  // ember crystal clusters (feed zones)
+  emberCluster(g, -6, -4); emberCluster(g, 5.5, 2.5); emberCluster(g, -0.5, 6.8);
+  // barrels + crates
+  const barrelMat = new MeshStandardMaterial({ color: 0x4a3220, roughness: .9 });
+  [[8,-6],[9.3,-5],[8.6,-7.3],[-8.5,5.5]].forEach(p => {
+    const b = new Mesh(new CylinderGeometry(0.7, 0.7, 1.4, 12), barrelMat);
+    b.position.set(p[0], 0.7, p[1]); g.add(b); addCollider(p[0], p[1], 0.9);
+  });
+  [[-4,-7.5],[7.5,6.8]].forEach(p => {
+    box(g, 1.3, 1.3, 1.3, M.woodDark, p[0], 0.65, p[1], 0.3); addCollider(p[0], p[1], 1.0);
+  });
+  // stairs back up (west) → Parlor
+  buildStairs(g, -11.2, -7.2, 3.2, false, 'parlor', { x: -10.5, z: -4.5, ry: Math.PI/2 }, "Climbing back to the Parlor…");
+  makeDust(g, 0, -4, 18, 4, 12);
+  document.getElementById('roomlab').textContent = 'The Cellar';
 }
 
 /* ---------- THE KEEPER (upgraded) ---------- */
@@ -53498,7 +53589,7 @@ player.position.set(-2, 0, 5);
 
 const P = {
   flame: 1, oil: CFG.oilMax, snareCD: 0, attn: 0,
-  petals: 0, caughtTotal: 0, evHearth: 0, evMystic: 0, petalsGathered: 0,
+  petals: 0, caughtTotal: 0, evHearth: 0, evMystic: 0, evEmber: 0, petalsGathered: 0,
   moving: false, stepT: 0,
   setFlame(i) {
     this.flame = Math.max(0, Math.min(CFG.flames.length - 1, i));
@@ -53524,6 +53615,7 @@ let demoDone = false;
 
 function spawnSpots() {
   if (roomName === 'parlor') return [[6.5,-4.5],[-7.5,3.5],[-5,-6.5],[2,-7.5],[-10,5.5]];
+  if (roomName === 'cellar') return [[-6,-4],[5.5,2.5],[-0.5,6.8],[8,-6],[-8.5,5.5]];
   return [[-8,-6],[7,-5],[-7,4],[8,5],[0,-7]];
 }
 class Gloom {
@@ -53628,7 +53720,7 @@ class Gloom {
     const d = to.length();
     if (d > 0.25) { this.vel.lerp(to.normalize().multiplyScalar(Math.min(4.6, d*2.6)), 1 - Math.pow(0.0005, dt)); p.addScaledVector(this.vel, dt); }
     else this.vel.multiplyScalar(0.9);
-    p.y = 0.12 + 0.1*Math.sin(t*2.4 + this.phase);
+    p.y = player.position.y + 0.12 + 0.1*Math.sin(t*2.4 + this.phase);
     this.g.rotation.y = Math.atan2(player.position.x - p.x, player.position.z - p.z);
     if (this.state === 'kept') {
       this.glow = Math.max(0, this.glow - CFG.glowDecay * dt);
@@ -53646,6 +53738,11 @@ class Gloom {
     for (const c of colliders) {
       const dx = p.x - c.x, dz = p.z - c.z, d = Math.hypot(dx, dz), min = c.r + this.r;
       if (d < min && d > 0.001) { p.x = c.x + dx/d*min; p.z = c.z + dz/d*min; }
+    }
+    // wild glooms steer clear of the cellar stairwell opening
+    if (roomName === 'parlor' && (this.state === 'wild' || this.state === 'feral') &&
+        p.x > -12.9 && p.x < -9.5 && p.z > -7.9 && p.z < 3.9) {
+      p.x = -9.5 + this.r;
     }
   }
   despawn() {
@@ -53677,26 +53774,29 @@ function burst(pos, color, n, spd) {
 function evolve(g, zoneType) {
   if (g.state !== 'kept') return;
   const mystic = zoneType === 'moon' && P.petals >= 3;
+  const ember = zoneType === 'ember';
   if (mystic) P.petals -= 3;
-  g.state = 'evolved'; g.kind = mystic ? 'mystic' : 'hearth';
-  if (mystic) P.evMystic++; else P.evHearth++;
+  g.state = 'evolved'; g.kind = mystic ? 'mystic' : (ember ? 'ember' : 'hearth');
+  if (mystic) P.evMystic++; else if (ember) P.evEmber++; else P.evHearth++;
   const p = g.g.position.clone();
-  const col = mystic ? 0x9adfff : 0xffd98a;
-  burst(p, col, 90, 4.2); burst(p, mystic ? 0x6a9adf : 0x9a7bff, 50, 2.6);
+  const col = mystic ? 0x9adfff : (ember ? 0xff7a3d : 0xffd98a);
+  burst(p, col, 90, 4.2); burst(p, ember ? 0xff4a1a : (mystic ? 0x6a9adf : 0x9a7bff), 50, 2.6);
   sfxEvolve();
   g.body.scale.multiplyScalar(1.32);
   g.halo.material.color.set(col);
   g.halo.scale.set(g.r*7, g.r*7, 1);
-  const core = new Mesh(new SphereGeometry(g.r*0.42, 12, 10), mystic ? M.mystCore : M.wispCore);
+  const core = new Mesh(new SphereGeometry(g.r*0.42, 12, 10), mystic ? M.mystCore : (ember ? M.emberCore : M.wispCore));
   core.position.y = g.r + 0.12; g.g.add(core);
   const wl = new PointLight(col, 9, 9, 2); wl.position.y = 1.2; g.g.add(wl);
   lampLight.distance += mystic ? 3.5 : 2.5;
   updatePetals();
-  document.getElementById('wintitle').textContent = mystic ? 'A Mystic Wisp is born' : 'A Lantern Wisp is born';
+  document.getElementById('wintitle').textContent = mystic ? 'A Mystic Wisp is born' : (ember ? 'An Ember Wisp is born' : 'A Lantern Wisp is born');
   document.getElementById('wintext').innerHTML = mystic
     ? "Moonlight and three moonpetals wove a <b>Mystic Wisp</b> — swift, bright, and <b>widening your lantern's reach</b>. The Conservatory holds more secrets."
-    : "Your Wisp now follows you, and its light <b>widens your lantern's reach</b> — forever. This is the whole game: catch, raise, evolve, push back the dark.";
-  hint(mystic ? "A Mystic Wisp!" : "Your Gloomling evolved into a Lantern Wisp!");
+    : (ember
+      ? "Deep warmth, deep dark — an <b>Ember Wisp</b>. Its heat <b>slows your lantern's thirst for oil</b>, stretching every drop. The Cellar remembers."
+      : "Your Wisp now follows you, and its light <b>widens your lantern's reach</b> — forever. This is the whole game: catch, raise, evolve, push back the dark.");
+  hint(ember ? "An Ember Wisp! Your oil will last longer now." : (mystic ? "A Mystic Wisp!" : "Your Gloomling evolved into a Lantern Wisp!"));
   setTimeout(() => { if (!demoDone) { demoDone = true; document.getElementById('winov').classList.remove('hidden'); audio(); } }, 1400);
 }
 
@@ -53748,8 +53848,17 @@ function gloomtide() {
 function loadRoom(name, spawn) {
   clearRoom();
   roomName = name;
+  const dark = name === 'cellar';
+  amb.intensity = dark ? 0.16 : 0.55;
+  hemi.intensity = dark ? 0.12 : 0.35;
+  moonFill.intensity = dark ? 0.04 : 0.35;
   if (name === 'parlor') { buildParlor(); for (let i = 0; i < 4; i++) new Gloom(false); }
-  else { buildConservatory(); for (let i = 0; i < 3; i++) new Gloom(true); }
+  else if (name === 'conservatory') { buildConservatory(); for (let i = 0; i < 3; i++) new Gloom(true); }
+  else {
+    buildCellar();
+    for (let i = 0; i < 3; i++) { const gl = new Gloom(false); gl.halo.material.color.set(0xcc6a2a); }
+    if (!seen.cellar) { seen.cellar = true; setTimeout(() => { if (state === 'play') hint("The Cellar… ember light feeds Glow and refills oil. Evolve one down here.", 6); }, 900); }
+  }
   player.position.set(spawn.x, 0, spawn.z);
   player.rotation.y = spawn.ry || 0;
   P.attn = 0;
@@ -53837,6 +53946,7 @@ function toggleCodex(force) {
       '<li>✦ Gloomlings caught: <b>' + P.caughtTotal + '</b></li>' +
       '<li>☀ Hearth Wisps raised: <b>' + P.evHearth + '</b></li>' +
       '<li>☾ Mystic Wisps raised: <b>' + P.evMystic + '</b></li>' +
+      '<li>🔥 Ember Wisps raised: <b>' + P.evEmber + '</b></li>' +
       '<li>✿ Moonpetals gathered: <b>' + P.petalsGathered + '</b></li>' +
       '<li style="margin-top:10px;color:#9d94c7"><i>"Feed them light, Keeper, and the manor remembers."</i></li>';
   }
@@ -53887,17 +53997,15 @@ function animate() {
       const dx = player.position.x - c.x, dz = player.position.z - c.z, d = Math.hypot(dx, dz), min = c.r + 0.45;
       if (d < min && d > 0.001) { player.position.x = c.x + dx/d*min; player.position.z = c.z + dz/d*min; }
     }
-    // stairs triggers (transCD grace prevents the instant bounce-back loop)
+    // room triggers (transCD grace prevents the instant bounce-back loop)
     transCD = Math.max(0, transCD - dt);
     if (transCD <= 0) {
-      if (stairsUp && Math.hypot(player.position.x - stairsUp.x, player.position.z - stairsUp.z) < 1.6) {
-        hint("Climbing to the Conservatory…", 2);
-        fadeTo('conservatory', { x: -9.0, z: -4.8, ry: Math.PI/2 });
-        stairsUp = null;
-      } else if (stairsDown && Math.hypot(player.position.x - stairsDown.x, player.position.z - stairsDown.z) < 1.6) {
-        hint("Descending to the Parlor…", 2);
-        fadeTo('parlor', { x: 10.5, z: -5.5, ry: -Math.PI/2 });
-        stairsDown = null;
+      for (const tr of triggers) {
+        if (Math.hypot(player.position.x - tr.x, player.position.z - tr.z) < 1.6) {
+          hint(tr.msg, 2);
+          fadeTo(tr.to, tr.spawn);
+          break;
+        }
       }
     }
     // lectern prompt
@@ -53905,12 +54013,18 @@ function animate() {
       seen.lectern = true; hint("The Book of Small Lights… press F to read it.");
     }
     // keeper animation: walk bob, cloak sway, lantern swing, scarf flow
-    // stair climbing: the parlor staircase is real geometry — ride its ramp
+    // stair climbing: the staircases are real geometry — ride their ramps
     let baseY = 0;
     if (roomName === 'parlor' && player.position.x > 9.9 && player.position.x < 12.5 &&
         player.position.z < 3.4 && player.position.z > -7.4) {
       const prog = Math.max(0, Math.min(1, (3.2 - player.position.z) / 10.6));
       baseY = prog * CFG.upperY;
+    }
+    if (roomName === 'parlor' && player.position.x > -12.5 && player.position.x < -9.9 &&
+        player.position.z < 3.4 && player.position.z > -7.4) {
+      const prog = Math.max(0, Math.min(1, (3.2 - player.position.z) / 10.6));
+      baseY = -prog * CFG.upperY;
+      player.position.x = Math.max(-12.1, Math.min(-10.3, player.position.x));
     }
     if (P.moving) {
       player.rotation.y = Math.atan2(mv.x, mv.z);
@@ -53937,9 +54051,10 @@ function animate() {
     // oil
     const f = CFG.flames[P.flame];
     let nearRefill = false;
-    for (const zn of feedZones) if (zn.type === 'warm' && Math.hypot(player.position.x - zn.x, player.position.z - zn.z) < 4.2) nearRefill = true;
+    for (const zn of feedZones) if ((zn.type === 'warm' || zn.type === 'ember') && Math.hypot(player.position.x - zn.x, player.position.z - zn.z) < 4.2) nearRefill = true;
+    const emberSave = glooms.some(g => g.state === 'evolved' && g.kind === 'ember');
     if (nearRefill) P.oil = Math.min(CFG.oilMax, P.oil + CFG.oilRefill * dt);
-    else P.oil = Math.max(0, P.oil - CFG.oilDrain * f * dt);
+    else P.oil = Math.max(0, P.oil - CFG.oilDrain * f * dt * (emberSave ? 0.65 : 1));
     if (P.oil <= 0 && P.flame > 0) { P.setFlame(0); hint("The lantern gutters… the candles will revive it."); }
     if (P.oil < 25 && !seen.oilLow) { seen.oilLow = true; hint("Oil runs low — rest by the candles."); }
     if (P.oil > 40) seen.oilLow = false;
