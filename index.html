@@ -30,6 +30,7 @@
   #attnbar{opacity:0;transition:opacity .4s}
   #attnbar.on{opacity:1}
   #petals{font-size:14px;color:#cfe8ff;letter-spacing:1px;margin-top:2px;text-shadow:0 0 8px rgba(150,200,255,.6)}
+  #upgrades{font-size:12px;color:#d8c98a;letter-spacing:1px;margin-top:3px}
   #pips{display:flex;gap:6px;margin-top:2px}
   .pip{width:22px;height:10px;border-radius:5px;background:#1c1c2c;border:1px solid #3a3a5c}
   .pip.lit{background:radial-gradient(circle,#ffe9a8,#c98a2e);border-color:#8a6a2e;box-shadow:0 0 8px rgba(255,200,100,.6)}
@@ -62,6 +63,7 @@
   <div class="bar" id="glowbar"><div class="lab">Gloomling glow</div><div class="track"><div class="fill" id="glowfill" style="width:0%"></div></div></div>
   <div class="bar" id="attnbar"><div class="lab">Gloom attention</div><div class="track"><div class="fill" id="attnfill" style="width:0%"></div></div></div>
   <div id="petals">✿ moonpetals × 0</div>
+  <div id="upgrades">⚙ Tank – · Snare – · Valve –</div>
 </div>
 <div id="roomlab">The Parlor</div>
 <button id="helpbtn" title="How to play">?</button>
@@ -86,6 +88,7 @@
       <li>The manor's shadows are alive — and shy. They crave <b>a little light</b>, but <b>fear a lot</b>. Dim your flame to lure one close.</li>
       <li>Press <kbd>Space</kbd> to <b>Kindle Snare</b> it (costs oil). Carry it to the <b>candle corner</b> — candlelight fills its <b>Glow</b>, and a full Glow means <b>evolution</b>.</li>
       <li>Beware: a <b>blazing</b> lantern draws <b>gloom attention</b>… and something may come to investigate. The east stairs climb to the moonlit <b>Conservatory</b>; the west stairs descend to the ember-lit <b>Cellar</b>.</li>
+      <li>Brass <b>fittings</b> hidden around the manor upgrade your lantern — bigger tank, wider snare, steadier flame. They remember you between visits.</li>
     </ul>
     <button class="btn" id="beginbtn">Enter the manor</button>
   </div>
@@ -53274,7 +53277,7 @@ const M = {
 };
 
 /* ---------- room framework ---------- */
-let roomGroup = null, colliders = [], candleFlames = [], feedZones = [], petals = [], moonbeams = [];
+let roomGroup = null, colliders = [], candleFlames = [], feedZones = [], petals = [], moonbeams = [], fittings = [];
 let dust = null, DUSTN = 0, lecternPos = null, triggers = [];
 let roomName = 'parlor';
 function box(parent, w, h, d, mat, x, y, z, ry) {
@@ -53285,7 +53288,7 @@ function addCollider(x, z, r) { colliders.push({ x, z, r }); }
 function clearRoom() {
   if (roomGroup) { scene.remove(roomGroup); }
   roomGroup = new Group(); scene.add(roomGroup);
-  colliders = []; candleFlames = []; feedZones = []; petals = []; moonbeams = [];
+  colliders = []; candleFlames = []; feedZones = []; petals = []; moonbeams = []; fittings = [];
   dust = null; lecternPos = null; triggers = []; candleLight = null;
   for (const g of glooms) scene.remove(g.g);
   glooms.length = 0;
@@ -53381,6 +53384,7 @@ function buildParlor() {
   buildStairs(g, 11.2, 3.2, -7.2, true, 'conservatory', { x: -9.0, z: -4.8, ry: Math.PI/2 }, "Climbing to the Conservatory…");
   // stairs down (west side) → the Cellar
   buildStairsDown(g, -11.2, 3.2, -7.2, 'cellar', { x: -9.0, z: -4.8, ry: Math.PI/2 }, "Descending into the Cellar…");
+  buildFittings('parlor');
   makeDust(g, -5, -10, 5, 4.5, 11);
   document.getElementById('roomlab').textContent = 'The Parlor';
 }
@@ -53496,6 +53500,7 @@ function buildConservatory() {
   buildStairs(g, -11.2, -7.2, 3.2, false, 'parlor', { x: 10.5, z: -5.5, ry: -Math.PI/2 }, "Descending to the Parlor…");
   // moonpetals
   for (let i = 0; i < 5; i++) spawnPetal();
+  buildFittings('conservatory');
   makeDust(g, 0, -6, 16, 5, 14);
   document.getElementById('roomlab').textContent = 'The Conservatory';
 }
@@ -53549,6 +53554,7 @@ function buildCellar() {
   });
   // stairs back up (west) → Parlor
   buildStairs(g, -11.2, -7.2, 3.2, false, 'parlor', { x: -10.5, z: -4.5, ry: Math.PI/2 }, "Climbing back to the Parlor…");
+  buildFittings('cellar');
   makeDust(g, 0, -4, 18, 4, 12);
   document.getElementById('roomlab').textContent = 'The Cellar';
 }
@@ -53590,6 +53596,8 @@ player.position.set(-2, 0, 5);
 const P = {
   flame: 1, oil: CFG.oilMax, snareCD: 0, attn: 0,
   petals: 0, caughtTotal: 0, evHearth: 0, evMystic: 0, evEmber: 0, petalsGathered: 0, speciesSeen: {},
+  up: { tank: 0, snare: 0, valve: 0 }, fittingsGot: {},
+  oilMax: CFG.oilMax, snareR: CFG.snareR, attnRise: CFG.attnRise,
   moving: false, stepT: 0,
   setFlame(i) {
     this.flame = Math.max(0, Math.min(CFG.flames.length - 1, i));
@@ -53818,6 +53826,7 @@ function evolve(g, zoneType) {
   if (mystic) P.petals -= 3;
   g.state = 'evolved'; g.kind = mystic ? 'mystic' : (ember ? 'ember' : 'hearth');
   if (mystic) P.evMystic++; else if (ember) P.evEmber++; else P.evHearth++;
+  saveGame();
   const p = g.g.position.clone();
   const col = mystic ? 0x9adfff : (ember ? 0xff7a3d : 0xffd98a);
   burst(p, col, 90, 4.2); burst(p, ember ? 0xff4a1a : (mystic ? 0x6a9adf : 0x9a7bff), 50, 2.6);
@@ -53854,7 +53863,7 @@ function snare() {
   burst(player.position, 0xffd98a, 26, 2.2);
   let caught = 0, tamed = 0;
   for (const g of glooms) {
-    if ((g.state === 'wild' || g.state === 'feral') && g.g.position.distanceTo(player.position) < CFG.snareR) {
+    if ((g.state === 'wild' || g.state === 'feral') && g.g.position.distanceTo(player.position) < P.snareR) {
       if (g.tideFeral) { tamed++; g.tideFeral = false; g.fleeT = 0; }
       g.state = 'kept'; g.glow = Math.max(g.glow, 35);
       g.eyeMat.color.set(0xd8ccff); g.halo.material.color.set(g.pale ? 0x6a9adf : 0x6a4adf);
@@ -53864,6 +53873,7 @@ function snare() {
         const si = SPECIES_INFO[g.species];
         hint("New species recorded: " + si[0] + " — " + si[1], 5);
       }
+      saveGame();
       burst(g.g.position, 0x9a7bff, 30, 2.4);
     }
   }
@@ -53887,6 +53897,83 @@ function gloomtide() {
     g.eyeMat.color.set(0xff4a5a); g.halo.material.color.set(0x8a1a3a);
     burst(g.g.position, 0x8a1a3a, 24, 2.5);
   }
+}
+
+/* ---------- keeper upgrades ---------- */
+const TRACK_INFO = {
+  tank: { name: "Brass Tank", desc: "Oil capacity +50." },
+  snare: { name: "Snare Coil", desc: "Kindle Snare reaches wider." },
+  valve: { name: "Steady Valve", desc: "Blazing draws gloom attention slower." },
+};
+// [room, x, z, track] — two fittings per room, two tiers per track
+const FITTINGS = [
+  ['parlor', -4.5, 7.8, 'tank'],
+  ['parlor', 3, -5.5, 'snare'],
+  ['conservatory', 0, -3, 'snare'],
+  ['conservatory', -6, 7, 'valve'],
+  ['cellar', -9, 0, 'tank'],
+  ['cellar', 2, -6, 'valve'],
+];
+const sfxUpgrade = () => { [392, 523, 659, 784].forEach((f, i) => tone(f, i * .1, .4, 'triangle', .12)); };
+function applyUpgrades() {
+  P.oilMax = CFG.oilMax + P.up.tank * 50;
+  P.snareR = CFG.snareR + P.up.snare * 0.8;
+  P.attnRise = CFG.attnRise * Math.pow(0.7, P.up.valve);
+  P.oil = Math.min(P.oil, P.oilMax);
+  updateUpgradesHUD();
+}
+function updateUpgradesHUD() {
+  const r = n => n === 0 ? '–' : (n === 1 ? 'I' : 'II');
+  document.getElementById('upgrades').textContent =
+    '⚙ Tank ' + r(P.up.tank) + ' · Snare ' + r(P.up.snare) + ' · Valve ' + r(P.up.valve);
+}
+function buildFittings(room) {
+  FITTINGS.forEach((f, idx) => {
+    if (f[0] !== room || P.fittingsGot[idx]) return;
+    const x = f[1], z = f[2], track = f[3];
+    const g = new Group(); g.position.set(x, 0, z); roomGroup.add(g);
+    const brass = new MeshStandardMaterial({ color: 0xc9a227, metalness: .75, roughness: .35 });
+    const ring = new Mesh(new TorusGeometry(0.32, 0.1, 10, 20), brass);
+    ring.position.y = 0.7; ring.rotation.x = Math.PI/2.4; g.add(ring);
+    const cog = new Mesh(new CylinderGeometry(0.16, 0.16, 0.3, 8), brass);
+    cog.position.y = 0.7; g.add(cog);
+    const gl = glowSprite(0xffd98a, 2.2, 0.5); gl.position.y = 0.7; g.add(gl);
+    fittings.push({ g, ring, x, z, track, idx, ph: Math.random()*7 });
+  });
+}
+function collectFitting(ft) {
+  P.up[ft.track] = Math.min(2, P.up[ft.track] + 1);
+  P.fittingsGot[ft.idx] = true;
+  roomGroup.remove(ft.g);
+  const i = fittings.indexOf(ft); if (i >= 0) fittings.splice(i, 1);
+  burst(new Vector3(ft.x, 0.7, ft.z), 0xffd98a, 26, 2.2);
+  sfxUpgrade(); applyUpgrades(); saveGame();
+  const ti = TRACK_INFO[ft.track];
+  hint(ti.name + " fitted! " + ti.desc + (P.up[ft.track] >= 2 ? " (maxed)" : ""), 4.5);
+}
+const SAVE_KEY = 'gloomlings-v1';
+function saveGame() {
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      up: P.up, fittingsGot: P.fittingsGot, petals: P.petals,
+      caughtTotal: P.caughtTotal, evHearth: P.evHearth, evMystic: P.evMystic,
+      evEmber: P.evEmber, petalsGathered: P.petalsGathered, speciesSeen: P.speciesSeen,
+    }));
+  } catch (e) {}
+}
+function loadGame() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SAVE_KEY));
+    if (!s) return;
+    Object.assign(P.up, s.up || {});
+    P.fittingsGot = s.fittingsGot || {};
+    P.petals = s.petals || 0;
+    P.caughtTotal = s.caughtTotal || 0;
+    P.evHearth = s.evHearth || 0; P.evMystic = s.evMystic || 0; P.evEmber = s.evEmber || 0;
+    P.petalsGathered = s.petalsGathered || 0;
+    P.speciesSeen = s.speciesSeen || {};
+    updatePetals();
+  } catch (e) {}
 }
 
 /* ---------- room transitions ---------- */
@@ -53978,7 +54065,7 @@ function hint(text, dur) {
 }
 function updatePetals() { document.getElementById('petals').textContent = '✿ moonpetals × ' + P.petals; }
 function updateHUD() {
-  document.getElementById('oilfill').style.width = (P.oil / CFG.oilMax * 100) + '%';
+  document.getElementById('oilfill').style.width = (P.oil / P.oilMax * 100) + '%';
   document.getElementById('attnfill').style.width = P.attn + '%';
   document.getElementById('attnbar').classList.toggle('on', P.attn > 2);
   const kept = glooms.find(g => g.state === 'kept' || g.state === 'evolved');
@@ -54017,6 +54104,8 @@ document.getElementById('intro').addEventListener('click', e => { if (e.target.i
 document.getElementById('codexclose').addEventListener('click', () => toggleCodex(false));
 
 /* ---------- boot ---------- */
+loadGame();
+applyUpgrades();
 loadRoom('parlor', { x: -2, z: 5, ry: 0 });
 if (Q.has('play')) begin();
 
@@ -54101,7 +54190,7 @@ function animate() {
     let nearRefill = false;
     for (const zn of feedZones) if ((zn.type === 'warm' || zn.type === 'ember') && Math.hypot(player.position.x - zn.x, player.position.z - zn.z) < 4.2) nearRefill = true;
     const emberSave = glooms.some(g => g.state === 'evolved' && g.kind === 'ember');
-    if (nearRefill) P.oil = Math.min(CFG.oilMax, P.oil + CFG.oilRefill * dt);
+    if (nearRefill) P.oil = Math.min(P.oilMax, P.oil + CFG.oilRefill * dt);
     else P.oil = Math.max(0, P.oil - CFG.oilDrain * f * dt * (emberSave ? 0.65 : 1));
     if (P.oil <= 0 && P.flame > 0) { P.setFlame(0); hint("The lantern gutters… the candles will revive it."); }
     if (P.oil < 25 && !seen.oilLow) { seen.oilLow = true; hint("Oil runs low — rest by the candles."); }
@@ -54109,7 +54198,7 @@ function animate() {
     P.snareCD = Math.max(0, P.snareCD - dt);
 
     // gloom attention → gloomtide
-    if (P.flame === CFG.flames.length - 1) P.attn = Math.min(100, P.attn + CFG.attnRise * dt);
+    if (P.flame === CFG.flames.length - 1) P.attn = Math.min(100, P.attn + P.attnRise * dt);
     else P.attn = Math.max(0, P.attn - CFG.attnFall * (P.flame === 0 ? 1.8 : 1) * dt);
     if (P.attn >= 100) { P.attn = 42; gloomtide(); }
 
@@ -54130,11 +54219,18 @@ function animate() {
       }
       if (Math.hypot(player.position.x - pt.x, player.position.z - pt.z) < 1.1) {
         pt.g.visible = false; pt.respawn = 60;
-        P.petals++; P.petalsGathered++; updatePetals(); sfxPetal();
+        P.petals++; P.petalsGathered++; updatePetals(); sfxPetal(); saveGame();
         burst(new Vector3(pt.x, 0.5, pt.z), 0xcfe8ff, 18, 1.8);
         if (P.petals === 3 && !seen.p3) { seen.p3 = true; hint("Three moonpetals! Evolve a Gloomling under a moonbeam for something rare…", 5); }
         else hint("Moonpetal gathered ✿ (" + P.petals + ")", 2.2);
       }
+    }
+    // brass fitting pickups
+    for (let i = fittings.length-1; i >= 0; i--) {
+      const ft = fittings[i];
+      ft.ring.rotation.z += dt*1.2;
+      ft.g.position.y = Math.sin(t*2 + ft.ph)*0.12;
+      if (Math.hypot(player.position.x - ft.x, player.position.z - ft.z) < 1.25) collectFitting(ft);
     }
   }
 
@@ -54164,7 +54260,7 @@ function animate() {
     const r = rings[i]; r.life += dt;
     const k = r.life / 0.55;
     if (k >= 1) { scene.remove(r.m); r.m.geometry.dispose(); r.m.material.dispose(); rings.splice(i,1); continue; }
-    const s = 0.4 + k * CFG.snareR;
+    const s = 0.4 + k * P.snareR;
     r.m.scale.set(s/0.75, s/0.75, 1);
     r.m.material.opacity = 0.95 * (1-k);
   }
