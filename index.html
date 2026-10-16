@@ -53292,8 +53292,13 @@ function clearRoom() {
   colliders = []; candleFlames = []; feedZones = []; petals = []; moonbeams = []; fittings = [];
   dust = null; lecternPos = null; triggers = []; candleLight = null;
   greatLantern = null; tideFerals = []; tideActive = false;
-  for (const g of glooms) scene.remove(g.g);
-  glooms.length = 0;
+  // wild glooms belong to their room; kept/evolved companions travel with the keeper
+  for (let i = glooms.length - 1; i >= 0; i--) {
+    if (glooms[i].state === 'wild' || glooms[i].state === 'feral') {
+      scene.remove(glooms[i].g);
+      glooms.splice(i, 1);
+    }
+  }
   for (const b of bursts) scene.remove(b.pts); bursts.length = 0;
   for (const r of rings) scene.remove(r.m); rings.length = 0;
 }
@@ -54070,6 +54075,14 @@ function loadRoom(name, spawn) {
   }
   player.position.set(spawn.x, 0, spawn.z);
   player.rotation.y = spawn.ry || 0;
+  // kept/evolved companions arrive with the keeper
+  for (const g of glooms) {
+    if (g.state === 'kept' || g.state === 'evolved') {
+      g.g.position.set(spawn.x + (Math.random()-.5)*3, 0, spawn.z + (Math.random()-.5)*3);
+      g.target = g.randTarget(); g.retarget = 0;
+      g.vel.set(0, 0, 0);
+    }
+  }
   P.attn = 0;
 }
 function fadeTo(name, spawn) {
@@ -54092,7 +54105,9 @@ let rekindleHintCD = 0;
 addEventListener('keydown', e => {
   if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
   keys[e.code] = true;
-  if (state !== 'play') { if (e.code === 'Enter' || e.code === 'Space') begin(); return; }
+  const introOpen = !document.getElementById('intro').classList.contains('hidden');
+  if (introOpen) { if (e.code === 'Enter' || e.code === 'Space' || e.code === 'Escape') begin(); return; }
+  if (state !== 'play') return;
   if (e.code === 'KeyQ') P.setFlame(P.flame - 1);
   if (e.code === 'KeyE') P.setFlame(P.flame + 1);
   if (e.code === 'Space') snare();
@@ -54171,15 +54186,18 @@ function toggleCodex(force) {
 
 /* ---------- flow ---------- */
 function begin() {
+  document.getElementById('intro').classList.add('hidden');
   if (state === 'play') return;
   state = 'play';
-  document.getElementById('intro').classList.add('hidden');
   audio();
   setTimeout(() => hint("Find a drifting shadow. Keep your flame low…", 5), 600);
 }
 document.getElementById('beginbtn').addEventListener('click', begin);
 document.getElementById('keepbtn').addEventListener('click', () => document.getElementById('winov').classList.add('hidden'));
-document.getElementById('helpbtn').addEventListener('click', () => document.getElementById('intro').classList.remove('hidden'));
+document.getElementById('helpbtn').addEventListener('click', () => {
+  document.getElementById('intro').classList.toggle('hidden');
+  audio();
+});
 document.getElementById('intro').addEventListener('click', e => { if (e.target.id === 'intro') begin(); });
 document.getElementById('codexclose').addEventListener('click', () => toggleCodex(false));
 
