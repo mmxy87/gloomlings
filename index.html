@@ -53279,6 +53279,7 @@ const M = {
 /* ---------- room framework ---------- */
 let roomGroup = null, colliders = [], candleFlames = [], feedZones = [], petals = [], moonbeams = [], fittings = [];
 let dust = null, DUSTN = 0, lecternPos = null, triggers = [];
+let greatLantern = null, tideFerals = [], tideActive = false;
 let roomName = 'parlor';
 function box(parent, w, h, d, mat, x, y, z, ry) {
   const m = new Mesh(new BoxGeometry(w, h, d), mat);
@@ -53290,6 +53291,7 @@ function clearRoom() {
   roomGroup = new Group(); scene.add(roomGroup);
   colliders = []; candleFlames = []; feedZones = []; petals = []; moonbeams = []; fittings = [];
   dust = null; lecternPos = null; triggers = []; candleLight = null;
+  greatLantern = null; tideFerals = []; tideActive = false;
   for (const g of glooms) scene.remove(g.g);
   glooms.length = 0;
   for (const b of bursts) scene.remove(b.pts); bursts.length = 0;
@@ -53369,6 +53371,18 @@ function buildParlor() {
   const bkGlow = glowSprite(0x9a7bff, 1.6, 0.35); bkGlow.position.set(0, 1.5, 0); lec.add(bkGlow);
   lecternPos = new Vector3(2.6, 0, -8.2);
   addCollider(2.6, -8.2, 0.7);
+  // the Great Lantern (unlit until rekindled)
+  const glp = new Group(); glp.position.set(-2.5, 0, -8.3); g.add(glp);
+  const glstand = new Mesh(new CylinderGeometry(0.35, 0.5, 1.0, 10), M.woodDark); glstand.position.y = 0.5; glp.add(glstand);
+  const glcage = new Mesh(new CylinderGeometry(0.55, 0.55, 1.1, 10, 1, true),
+    new MeshStandardMaterial({ color: 0x2a2a33, metalness: .6, roughness: .5, side: DoubleSide, transparent: true, opacity: .85 }));
+  glcage.position.y = 1.6; glp.add(glcage);
+  const glcoreMat = new MeshBasicMaterial({ color: P.rekindled ? 0xffe9a8 : 0x1a1626 });
+  const glcore = new Mesh(new SphereGeometry(0.32, 12, 10), glcoreMat); glcore.position.y = 1.6; glp.add(glcore);
+  const glglow = glowSprite(0xffd98a, P.rekindled ? 7 : 2, P.rekindled ? 0.9 : 0.12); glglow.position.y = 1.6; glp.add(glglow);
+  const gllight = new PointLight(0xffd98a, P.rekindled ? 22 : 0, 18, 2); gllight.position.y = 1.8; glp.add(gllight);
+  greatLantern = { light: gllight, glow: glglow, coreMat: glcoreMat };
+  addCollider(-2.5, -8.3, 0.9);
   // candle corner (south-east)
   const cr = new Mesh(new CircleGeometry(2.6, 24), new MeshStandardMaterial({ color: 0x3a2a4a, roughness: 1 }));
   cr.rotation.x = -Math.PI/2; cr.position.set(CFG.candle.x, 0.02, CFG.candle.z); g.add(cr);
@@ -53596,6 +53610,7 @@ player.position.set(-2, 0, 5);
 const P = {
   flame: 1, oil: CFG.oilMax, snareCD: 0, attn: 0,
   petals: 0, caughtTotal: 0, evHearth: 0, evMystic: 0, evEmber: 0, petalsGathered: 0, speciesSeen: {},
+  tidesSurvived: 0, fathersTamed: 0, rekindled: false,
   up: { tank: 0, snare: 0, valve: 0 }, fittingsGot: {},
   oilMax: CFG.oilMax, snareR: CFG.snareR, attnRise: CFG.attnRise,
   moving: false, stepT: 0,
@@ -53671,6 +53686,7 @@ class Gloom {
     scene.add(this.g);
     this.state = 'wild'; // wild | kept | feral | evolved
     this.tideFeral = false; this.fleeT = 0; this.touchCD = 0;
+    this.isFather = false; this.hp = 1; this.tideSpd = 0;
     this.target = this.randTarget(); this.retarget = 0;
     this.phase = Math.random()*7;
     this.glow = 45 + Math.random()*30;
@@ -53720,15 +53736,16 @@ class Gloom {
       // gloomtide hunter: chase the keeper
       dir.subVectors(player.position, p).setY(0);
       const d = dir.length();
-      if (d < 1.15 && this.touchCD <= 0) {
+      const touchD = this.isFather ? 2.1 : 1.15;
+      if (d < touchD && this.touchCD <= 0) {
         this.touchCD = 1.2;
-        P.oil = Math.max(0, P.oil - 25);
+        P.oil = Math.max(0, P.oil - (this.isFather ? 40 : 25));
         sfxNo(); burst(p, 0xff4a5a, 16, 2);
         hint("It raked your lantern — oil stolen! Dim your flame or snare it.");
         const kb = new Vector3().subVectors(player.position, p).setY(0).normalize();
         player.position.addScaledVector(kb, 1.4);
       }
-      speed = d > 2 ? 4.4 : 2.2;
+      speed = d > 2 ? (this.tideSpd || 4.4) : 2.2;
       if (d > 0.01) dir.normalize();
       if (this.fleeT > 0) { this.fleeT -= dt; dir.negate(); speed = 3.4; if (this.fleeT <= 0) this.despawn(); return; }
     } else if (feral) {
@@ -53794,6 +53811,7 @@ class Gloom {
     }
   }
   despawn() {
+    untide(this);
     burst(this.g.position, 0x8a1a3a, 22, 2);
     scene.remove(this.g);
     const i = glooms.indexOf(this); if (i >= 0) glooms.splice(i, 1);
@@ -53849,6 +53867,31 @@ function evolve(g, zoneType) {
   setTimeout(() => { if (!demoDone) { demoDone = true; document.getElementById('winov').classList.remove('hidden'); audio(); } }, 1400);
 }
 
+/* ---------- the rekindling (win condition) ---------- */
+let rekindleShown = false;
+function rekindle() {
+  if (P.rekindled) return;
+  P.rekindled = true; saveGame();
+  const lp = new Vector3(-2.5, 1.6, -8.3);
+  burst(lp, 0xffd98a, 120, 5); burst(lp, 0x9adfff, 60, 3); burst(lp, 0xff7a3d, 60, 3);
+  sfxEvolve();
+  if (greatLantern) {
+    greatLantern.light.intensity = 22;
+    greatLantern.glow.material.opacity = 0.9; greatLantern.glow.scale.set(7, 7, 1);
+    greatLantern.coreMat.color.set(0xffe9a8);
+  }
+  amb.intensity = 0.9;
+  hint("Three lights, one flame — the Great Lantern burns again!", 6);
+  setTimeout(() => {
+    if (!rekindleShown) {
+      rekindleShown = true;
+      document.getElementById('wintitle').textContent = 'The Manor Remembers Light';
+      document.getElementById('wintext').innerHTML = "Hearth, Mystic, Ember — <b>three wisps, three lights</b>. The Great Lantern burns again, and the manor is yours, Keeper. Wander as long as you like; the dark will always be waiting.";
+      document.getElementById('winov').classList.remove('hidden'); audio();
+    }
+  }, 1600);
+}
+
 /* ---------- kindle snare ---------- */
 function snare() {
   if (state !== 'play' || P.snareCD > 0) return;
@@ -53864,7 +53907,16 @@ function snare() {
   let caught = 0, tamed = 0;
   for (const g of glooms) {
     if ((g.state === 'wild' || g.state === 'feral') && g.g.position.distanceTo(player.position) < P.snareR) {
-      if (g.tideFeral) { tamed++; g.tideFeral = false; g.fleeT = 0; }
+      if (g.tideFeral && g.isFather && g.hp > 1) {
+        g.hp--; g.tideSpd = Math.max(2.2, (g.tideSpd || 3.4) * 0.55); g.fleeT = Math.max(g.fleeT, 14);
+        burst(g.g.position, 0xffd98a, 40, 3); sfxCatch();
+        hint("The Gloomfather staggers — one more snare!", 4);
+        continue;
+      }
+      if (g.tideFeral) {
+        tamed++; g.tideFeral = false; g.fleeT = 0; untide(g);
+        if (g.isFather) { P.fathersTamed++; hint("Gloomfather tamed! The dark retreats.", 5); }
+      }
       g.state = 'kept'; g.glow = Math.max(g.glow, 35);
       g.eyeMat.color.set(0xd8ccff); g.halo.material.color.set(g.pale ? 0x6a9adf : 0x6a4adf);
       caught++; P.caughtTotal++;
@@ -53886,16 +53938,36 @@ function snare() {
 }
 
 /* ---------- gloomtide ---------- */
+function untide(g) {
+  const i = tideFerals.indexOf(g); if (i >= 0) tideFerals.splice(i, 1);
+}
 function gloomtide() {
   sfxTide();
-  hint("The dark stirs… something feral comes to investigate your blaze!", 5);
-  for (let i = 0; i < 3; i++) {
+  tideActive = true;
+  const n = Math.min(3 + Math.floor(P.tidesSurvived / 2), 6);
+  const fatherTide = (P.tidesSurvived + 1) % 3 === 0;
+  const spd = 4.4 + Math.min(1.5, P.tidesSurvived * 0.2);
+  hint("The dark stirs… something feral comes to investigate your blaze!" + (fatherTide ? " Something HUGE." : ""), 5);
+  for (let i = 0; i < n; i++) {
     const g = new Gloom(false);
     const a = Math.random()*Math.PI*2;
     g.g.position.set(player.position.x + Math.cos(a)*7, 0, player.position.z + Math.sin(a)*7);
-    g.tideFeral = true; g.fleeT = 26;
+    g.tideFeral = true; g.fleeT = 26; g.tideSpd = spd;
     g.eyeMat.color.set(0xff4a5a); g.halo.material.color.set(0x8a1a3a);
     burst(g.g.position, 0x8a1a3a, 24, 2.5);
+    tideFerals.push(g);
+  }
+  if (fatherTide) {
+    const gf = new Gloom(false);
+    gf.baseScale = 2.3; gf.isFather = true; gf.hp = 2;
+    const a = Math.random()*Math.PI*2;
+    gf.g.position.set(player.position.x + Math.cos(a)*8, 0, player.position.z + Math.sin(a)*8);
+    gf.tideFeral = true; gf.fleeT = 40; gf.tideSpd = 3.4;
+    gf.eyeMat.color.set(0xff2a3a); gf.halo.material.color.set(0x6a0a1a);
+    gf.halo.scale.set(gf.r*6, gf.r*6, 1);
+    burst(gf.g.position, 0x6a0a1a, 40, 3);
+    tideFerals.push(gf);
+    hint("A GLOOMFATHER rises from the dark! It will take two snares!", 5);
   }
 }
 
@@ -53958,6 +54030,7 @@ function saveGame() {
       up: P.up, fittingsGot: P.fittingsGot, petals: P.petals,
       caughtTotal: P.caughtTotal, evHearth: P.evHearth, evMystic: P.evMystic,
       evEmber: P.evEmber, petalsGathered: P.petalsGathered, speciesSeen: P.speciesSeen,
+      tidesSurvived: P.tidesSurvived, fathersTamed: P.fathersTamed, rekindled: P.rekindled,
     }));
   } catch (e) {}
 }
@@ -53972,6 +54045,9 @@ function loadGame() {
     P.evHearth = s.evHearth || 0; P.evMystic = s.evMystic || 0; P.evEmber = s.evEmber || 0;
     P.petalsGathered = s.petalsGathered || 0;
     P.speciesSeen = s.speciesSeen || {};
+    P.tidesSurvived = s.tidesSurvived || 0;
+    P.fathersTamed = s.fathersTamed || 0;
+    P.rekindled = !!s.rekindled;
     updatePetals();
   } catch (e) {}
 }
@@ -53981,7 +54057,7 @@ function loadRoom(name, spawn) {
   clearRoom();
   roomName = name;
   const dark = name === 'cellar';
-  amb.intensity = dark ? 0.16 : 0.55;
+  amb.intensity = dark ? 0.16 : (name === 'parlor' && P.rekindled ? 0.9 : 0.55);
   hemi.intensity = dark ? 0.12 : 0.35;
   moonFill.intensity = dark ? 0.04 : 0.35;
   if (name === 'parlor') { buildParlor(); spawnMix([['gloom',false],['gloom',false],['gloom',false],['zephyr',false]]); }
@@ -54012,6 +54088,7 @@ function fadeTo(name, spawn) {
 const keys = {};
 let state = 'intro';
 let transCD = 0; // grace period after a room change — no triggers while > 0
+let rekindleHintCD = 0;
 addEventListener('keydown', e => {
   if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
   keys[e.code] = true;
@@ -54080,6 +54157,9 @@ function toggleCodex(force) {
       '<li>☀ Hearth Wisps raised: <b>' + P.evHearth + '</b></li>' +
       '<li>☾ Mystic Wisps raised: <b>' + P.evMystic + '</b></li>' +
       '<li>🔥 Ember Wisps raised: <b>' + P.evEmber + '</b></li>' +
+      '<li>🌊 Gloomtides weathered: <b>' + P.tidesSurvived + '</b></li>' +
+      '<li>👑 Gloomfathers tamed: <b>' + P.fathersTamed + '</b></li>' +
+      (P.rekindled ? '<li>🕯 The Great Lantern: <b>rekindled</b></li>' : '') +
       '<li>✿ Moonpetals gathered: <b>' + P.petalsGathered + '</b></li>' +
       '<li style="margin-top:8px;color:#9d94c7">Species recorded:</li>' +
       speciesCodex() +
@@ -54201,6 +54281,24 @@ function animate() {
     if (P.flame === CFG.flames.length - 1) P.attn = Math.min(100, P.attn + P.attnRise * dt);
     else P.attn = Math.max(0, P.attn - CFG.attnFall * (P.flame === 0 ? 1.8 : 1) * dt);
     if (P.attn >= 100) { P.attn = 42; gloomtide(); }
+    if (tideActive && tideFerals.length === 0) {
+      tideActive = false;
+      P.tidesSurvived++; saveGame();
+      hint("The tide passes. You have weathered " + P.tidesSurvived + (P.tidesSurvived === 1 ? " gloomtide." : " gloomtides."), 5);
+    }
+    // the Great Lantern
+    rekindleHintCD = Math.max(0, rekindleHintCD - dt);
+    if (roomName === 'parlor' && !P.rekindled) {
+      if (P.evHearth > 0 && P.evMystic > 0 && P.evEmber > 0) rekindle();
+      else if (rekindleHintCD <= 0 && Math.hypot(player.position.x + 2.5, player.position.z + 8.3) < 3) {
+        rekindleHintCD = 25;
+        const need = [];
+        if (!P.evHearth) need.push('a Hearth wisp');
+        if (!P.evMystic) need.push('a Mystic wisp');
+        if (!P.evEmber) need.push('an Ember wisp');
+        hint("The Great Lantern sleeps… it longs for three lights: " + need.join(', ') + ".", 5);
+      }
+    }
 
     // lantern flicker
     const fl = 1 + 0.06*Math.sin(t*13) + 0.04*Math.sin(t*29+1);
