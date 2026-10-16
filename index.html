@@ -53,6 +53,17 @@
   #codex .card{text-align:left}
   #codex ul{list-style:none;padding:0}
   #codex li{margin-bottom:6px}
+  #surge{font-size:12px;color:#9adfff;letter-spacing:1px;margin-top:3px}
+  #bSurge{right:196px;bottom:40px;font-size:12px}
+  #shop .card{text-align:left;max-width:440px}
+  #shop h2{margin:0 0 2px;color:#ffe9a8;font-size:22px}
+  #shop .sub2{color:#9a94c4;font-size:13px;margin:0 0 8px}
+  .shopitem{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#1c1c2c;border:1px solid #3a3a5c;border-radius:8px;padding:10px 12px;margin:8px 0}
+  .shopitem b{color:#ffd98a}
+  .shopitem span{color:#9a94c4;font-size:13px;display:block}
+  .shopitem button{background:#2c2c44;border:1px solid #5a5a7c;color:#ffe9a8;border-radius:6px;padding:8px 12px;font-family:inherit;cursor:pointer;font-size:14px;white-space:nowrap}
+  .shopitem button:active{background:#3c3c5c}
+  .xbtn{float:right;background:none;border:none;color:#9a94c4;font-size:18px;cursor:pointer;font-family:inherit}
 </style>
 </head>
 <body>
@@ -64,11 +75,12 @@
   <div class="bar" id="attnbar"><div class="lab">Gloom attention</div><div class="track"><div class="fill" id="attnfill" style="width:0%"></div></div></div>
   <div id="petals">✿ moonpetals × 0</div>
   <div id="upgrades">⚙ Tank – · Snare – · Valve –</div>
+  <div id="surge">✦ Surge — no wisp</div>
 </div>
 <div id="roomlab">The Parlor</div>
 <button id="helpbtn" title="How to play">?</button>
 <div id="hint"></div>
-<div id="flamelab"><kbd>Q</kbd>/<kbd>E</kbd> flame &nbsp;·&nbsp; <kbd>Space</kbd> snare &nbsp;·&nbsp; <kbd>F</kbd> codex &nbsp;·&nbsp; <kbd>WASD</kbd> move</div>
+<div id="flamelab"><kbd>Q</kbd>/<kbd>E</kbd> flame &nbsp;·&nbsp; <kbd>Space</kbd> snare &nbsp;·&nbsp; <kbd>F</kbd> codex &nbsp;·&nbsp; <kbd>X</kbd> surge &nbsp;·&nbsp; <kbd>WASD</kbd> move</div>
 
 <div id="touchui">
   <div id="joy"><div id="joyknob"></div></div>
@@ -76,6 +88,7 @@
   <button class="tbtn" id="bFlameUp">FLAME+</button>
   <button class="tbtn" id="bFlameDn">FLAME−</button>
   <button class="tbtn" id="bBook">BOOK</button>
+  <button class="tbtn" id="bSurge">SURGE</button>
 </div>
 
 <div id="fade"></div>
@@ -89,6 +102,7 @@
       <li>Press <kbd>Space</kbd> to <b>Kindle Snare</b> it (costs oil). Carry it to the <b>candle corner</b> — candlelight fills its <b>Glow</b>, and a full Glow means <b>evolution</b>.</li>
       <li>Beware: a <b>blazing</b> lantern draws <b>gloom attention</b>… and something may come to investigate. The east stairs climb to the moonlit <b>Conservatory</b>; the west stairs descend to the ember-lit <b>Cellar</b>.</li>
       <li>Brass <b>fittings</b> hidden around the manor upgrade your lantern — bigger tank, wider snare, steadier flame. They remember you between visits.</li>
+      <li>Beyond that: a <b>sealed door</b> sleeps in the Cellar, a <b>workbench</b> in the Parlor spends moonpetals, and an evolved wisp grants <b>Wisp Surge</b> (<kbd>X</kbd>) — a flare that scatters ferals.</li>
     </ul>
     <button class="btn" id="beginbtn">Enter the manor</button>
   </div>
@@ -109,6 +123,17 @@
     <p class="sub">your keeper's record</p>
     <ul id="codexlist"></ul>
     <div style="text-align:center"><button class="btn" id="codexclose">Close the book</button></div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="shop">
+  <div class="card">
+    <button class="xbtn" id="shopx">✕</button>
+    <h2>The Workbench</h2>
+    <p class="sub2">moonpetals in hand: <b id="shoppetal">0</b> ✿</p>
+    <div class="shopitem"><div><b>Oil flask</b><span>Refills 40 lantern oil, right now.</span></div><button data-buy="oil">3 ✿</button></div>
+    <div class="shopitem"><div><b>Glow treat</b><span>+40 Glow for the companion on your lantern.</span></div><button data-buy="treat">2 ✿</button></div>
+    <div class="shopitem"><div><b>Reinforced tank</b><span>+10 max oil. The brass can only take so much (<span id="shoptank">0</span>/3).</span></div><button data-buy="tank">8 ✿</button></div>
   </div>
 </div>
 
@@ -53280,6 +53305,8 @@ const M = {
 let roomGroup = null, colliders = [], candleFlames = [], feedZones = [], petals = [], moonbeams = [], fittings = [];
 let dust = null, DUSTN = 0, lecternPos = null, triggers = [];
 let greatLantern = null, tideFerals = [], tideActive = false;
+let benchPos = null, doorBoards = null, lorePages = [];
+let doorHintCD = 0, benchHintCD = 0, surgePos = null;
 let roomName = 'parlor';
 function box(parent, w, h, d, mat, x, y, z, ry) {
   const m = new Mesh(new BoxGeometry(w, h, d), mat);
@@ -53292,6 +53319,7 @@ function clearRoom() {
   colliders = []; candleFlames = []; feedZones = []; petals = []; moonbeams = []; fittings = [];
   dust = null; lecternPos = null; triggers = []; candleLight = null;
   greatLantern = null; tideFerals = []; tideActive = false;
+  benchPos = null; doorBoards = null; lorePages = [];
   // wild glooms belong to their room; kept/evolved companions travel with the keeper
   for (let i = glooms.length - 1; i >= 0; i--) {
     if (glooms[i].state === 'wild' || glooms[i].state === 'feral') {
@@ -53376,6 +53404,13 @@ function buildParlor() {
   const bkGlow = glowSprite(0x9a7bff, 1.6, 0.35); bkGlow.position.set(0, 1.5, 0); lec.add(bkGlow);
   lecternPos = new Vector3(2.6, 0, -8.2);
   addCollider(2.6, -8.2, 0.7);
+  // workbench (spends moonpetals)
+  benchPos = new Vector3(6, 0, 7.5);
+  box(g, 1.9, 0.16, 1.0, M.wood, 6, 0.9, 7.5);
+  [[5.25,7.15],[6.75,7.15],[5.25,7.85],[6.75,7.85]].forEach(pt => box(g, 0.16, 0.9, 0.16, M.woodDark, pt[0], 0.45, pt[1]));
+  box(g, 0.5, 0.3, 0.4, M.woodDark, 6.4, 1.13, 7.5);
+  const bgl = glowSprite(0xffd98a, 2.6, 0.35); bgl.position.set(6, 1.2, 7.5); g.add(bgl);
+  addCollider(6, 7.5, 1.2);
   // the Great Lantern (unlit until rekindled)
   const glp = new Group(); glp.position.set(-2.5, 0, -8.3); g.add(glp);
   const glstand = new Mesh(new CylinderGeometry(0.35, 0.5, 1.0, 10), M.woodDark); glstand.position.y = 0.5; glp.add(glstand);
@@ -53571,11 +53606,95 @@ function buildCellar() {
   [[-4,-7.5],[7.5,6.8]].forEach(p => {
     box(g, 1.3, 1.3, 1.3, M.woodDark, p[0], 0.65, p[1], 0.3); addCollider(p[0], p[1], 1.0);
   });
+  // the sealed door (east wall) — an Ember wisp's fire opens it
+  const dg = new Group(); dg.position.set(12.6, 0, 6); g.add(dg);
+  box(dg, 0.5, 3.4, 0.5, M.woodDark, 0, 1.7, -1.1);
+  box(dg, 0.5, 3.4, 0.5, M.woodDark, 0, 1.7, 1.1);
+  box(dg, 0.5, 0.5, 2.7, M.woodDark, 0, 3.55, 0);
+  const sealDoor = new Mesh(new BoxGeometry(0.3, 3.0, 1.9),
+    new MeshStandardMaterial({ color: 0x241a12, roughness: 1 }));
+  sealDoor.position.y = 1.6; dg.add(sealDoor);
+  if (!P.doorOpen) {
+    doorBoards = new Group(); dg.add(doorBoards);
+    [[1.1, 0.5], [2.1, -0.45], [1.6, 1.25]].forEach(b => {
+      const pl = new Mesh(new BoxGeometry(0.18, 0.34, 2.5), M.woodDark);
+      pl.position.set(-0.28, b[0], 0); pl.rotation.x = b[1]; doorBoards.add(pl);
+    });
+    const dgl = glowSprite(0xff7a3d, 2.2, 0.14); dgl.position.set(-0.4, 1.6, 0); dg.add(dgl);
+  }
+  triggers.push({ x: 11.9, z: 6, act: doorInteract });
   // stairs back up (west) → Parlor
   buildStairs(g, -11.2, -7.2, 3.2, false, 'parlor', { x: -10.5, z: -4.5, ry: Math.PI/2 }, "Climbing back to the Parlor…");
   buildFittings('cellar');
   makeDust(g, 0, -4, 18, 4, 12);
   document.getElementById('roomlab').textContent = 'The Cellar';
+}
+
+/* ---------- the sealed door ---------- */
+function doorInteract() {
+  if (P.doorOpen) { fadeTo('garden', { x: -6.5, z: 0, ry: Math.PI/2 }); return; }
+  const wisp = glooms.find(g => g.state === 'evolved' && g.kind === 'ember');
+  if (!wisp) { hint("Boarded shut. An Ember wisp's fire could burn through…", 4); return; }
+  P.doorOpen = true; saveGame();
+  transCD = 2.2; // hold the trigger while the boards burn
+  const bp = new Vector3(12.4, 1.6, 6);
+  burst(bp, 0xff7a3d, 60, 3); burst(bp, 0xffd98a, 40, 2);
+  sfxEvolve();
+  if (doorBoards) { doorBoards.parent.remove(doorBoards); doorBoards = null; }
+  hint("Your Ember wisp breathes fire — the boards burn away!", 4);
+  setTimeout(() => fadeTo('garden', { x: -6.5, z: 0, ry: Math.PI/2 }), 900);
+}
+
+/* ---------- the walled garden ---------- */
+const JOURNAL = [
+  ["The first Gloomling", "It was afraid of my lantern until I turned the flame low. They don't fear light. They fear being burned. There is a difference, and it is everything."],
+  ["The garden", "I walled this garden against the dark, but the moon finds it anyway. The petals fall where they please. Let them."],
+  ["The Great Lantern", "Three lights. Hearth for warmth, Mystic for dreams, Ember for courage. When all three burn below, the great one above will remember."],
+];
+const JOURNAL_SPOTS = [[-5, 3], [5, -3], [0, 5]];
+function buildLore() {
+  JOURNAL.forEach((j, idx) => {
+    if (P.lore.includes(idx)) return;
+    const sp = JOURNAL_SPOTS[idx];
+    const pg = new Group(); pg.position.set(sp[0], 0, sp[1]); roomGroup.add(pg);
+    const paper = new Mesh(new PlaneGeometry(0.5, 0.65),
+      new MeshBasicMaterial({ color: 0xe8dcc0, side: DoubleSide }));
+    paper.position.y = 0.8; paper.rotation.y = Math.random()*3; pg.add(paper);
+    const gl = glowSprite(0xfff2cc, 1.6, 0.5); gl.position.y = 0.8; pg.add(gl);
+    lorePages.push({ g: pg, paper, x: sp[0], z: sp[1], idx, ph: Math.random()*7 });
+  });
+}
+function buildGarden() {
+  const W = CFG.roomW, D = CFG.roomD, g = roomGroup;
+  const floor = new Mesh(new PlaneGeometry(W, D),
+    new MeshStandardMaterial({ color: 0x1e3a2a, roughness: 1 }));
+  floor.rotation.x = -Math.PI/2; g.add(floor);
+  const wallMat = new MeshStandardMaterial({ color: 0x3d4450, roughness: 1 });
+  const H = 4;
+  box(g, W, H, 0.6, wallMat, 0, H/2, -D/2); box(g, W, H, 0.6, wallMat, 0, H/2, D/2);
+  box(g, 0.6, H, D, wallMat, -W/2, H/2, 0); box(g, 0.6, H, D, wallMat, W/2, H/2, 0);
+  // stone archway (west) back to the Cellar
+  box(g, 0.8, 3.6, 0.7, wallMat, -W/2+0.3, 1.8, -1.4);
+  box(g, 0.8, 3.6, 0.7, wallMat, -W/2+0.3, 1.8, 1.4);
+  box(g, 0.8, 0.7, 3.5, wallMat, -W/2+0.3, 3.9, 0);
+  triggers.push({ x: -W/2+1.4, z: 0, to: 'cellar',
+    spawn: { x: 10.2, z: 6, ry: -Math.PI/2 }, msg: "Back through to the Cellar…" });
+  // moonlight pools (visual)
+  [[-6,4],[6,-4],[0,5]].forEach(mp => {
+    const mg = glowSprite(0xbcd4ff, 5, 0.28); mg.position.set(mp[0], 0.4, mp[1]); g.add(mg);
+  });
+  // shrubs
+  const shrubMat = new MeshStandardMaterial({ color: 0x2a5a3a, roughness: 1 });
+  [[-9,-6],[9,6],[-9,7],[8,-7],[0,-8]].forEach(sp2 => {
+    const s = new Mesh(new IcosahedronGeometry(0.9, 0), shrubMat);
+    s.position.set(sp2[0], 0.7, sp2[1]); s.scale.y = 0.75; g.add(s);
+    addCollider(sp2[0], sp2[1], 1.0);
+  });
+  // moonpetals grow wild here
+  for (let i = 0; i < 7; i++) spawnPetal();
+  buildLore();
+  makeDust(g, 0, 0, 22, 4, 16);
+  document.getElementById('roomlab').textContent = 'The Walled Garden';
 }
 
 /* ---------- THE KEEPER (upgraded) ---------- */
@@ -53616,6 +53735,7 @@ const P = {
   flame: 1, oil: CFG.oilMax, snareCD: 0, attn: 0,
   petals: 0, caughtTotal: 0, evHearth: 0, evMystic: 0, evEmber: 0, petalsGathered: 0, speciesSeen: {},
   tidesSurvived: 0, fathersTamed: 0, rekindled: false,
+  surgeCD: 0, doorOpen: false, shopTank: 0, lore: [], petalsSpent: 0,
   up: { tank: 0, snare: 0, valve: 0 }, fittingsGot: {},
   oilMax: CFG.oilMax, snareR: CFG.snareR, attnRise: CFG.attnRise,
   moving: false, stepT: 0,
@@ -53651,6 +53771,7 @@ const SPECIES_INFO = {
   gloom: ["Gloom", "the common shadow. Curious, cautious, kind."],
   zephyr: ["Zephyr", "a quicksilver shadow — fast and flighty, but it snares like any other."],
   sage: ["Sage", "an old, slow shadow. Patient with bright light; drinks light twice as fast."],
+  bramble: ["Bramble", "a garden shadow, slow and mossy-calm. Found only where the moon falls softest."],
 };
 function spawnMix(mix) {
   for (const [sp, pale] of mix) {
@@ -53660,7 +53781,7 @@ function spawnMix(mix) {
 }
 function speciesCodex() {
   let h = '';
-  for (const sp of ['gloom', 'zephyr', 'sage']) {
+  for (const sp of ['gloom', 'zephyr', 'sage', 'bramble']) {
     if (P.speciesSeen[sp]) { const i = SPECIES_INFO[sp]; h += '<li>✦ ' + i[0] + ' — <i>' + i[1] + '</i></li>'; }
   }
   return h || '<li><i>None yet — snare a Gloomling.</i></li>';
@@ -53692,6 +53813,7 @@ class Gloom {
     this.state = 'wild'; // wild | kept | feral | evolved
     this.tideFeral = false; this.fleeT = 0; this.touchCD = 0;
     this.isFather = false; this.hp = 1; this.tideSpd = 0;
+    this.scareT = 0;
     this.target = this.randTarget(); this.retarget = 0;
     this.phase = Math.random()*7;
     this.glow = 45 + Math.random()*30;
@@ -53720,6 +53842,12 @@ class Gloom {
       this.halo.material.color.set(0xb08aff);
       this.wanderSpd = 0.65; this.lureSpd = 1.0; this.spdMul = 0.7;
       this.fearAt = 0.9; this.feedMul = 2.0; this.orbitD = 2.0;
+    } else if (sp === 'bramble') {
+      // garden shadow: slow, mossy-calm
+      this.baseScale = 1.12;
+      this.halo.material.color.set(0x7de8a0);
+      this.wanderSpd = 0.9; this.lureSpd = 1.4; this.spdMul = 0.85;
+      this.fearAt = 0.55;
     }
   }
   update(dt, t) {
@@ -53737,7 +53865,14 @@ class Gloom {
     const p = this.g.position;
     const feral = this.state === 'feral' || this.tideFeral;
     let dir = new Vector3(), speed = 1.25;
-    if (feral && this.tideFeral) {
+    if (this.scareT > 0 && surgePos) {
+      // wisp surge: flee the flare
+      this.scareT -= dt;
+      dir.subVectors(p, surgePos).setY(0);
+      if (dir.length() > 0.01) dir.normalize();
+      speed = 5.2;
+      this.retarget = 1.2;
+    } else if (feral && this.tideFeral) {
       // gloomtide hunter: chase the keeper
       dir.subVectors(player.position, p).setY(0);
       const d = dir.length();
@@ -53897,6 +54032,82 @@ function rekindle() {
   }, 1600);
 }
 
+/* ---------- the workbench ---------- */
+let shopOpen = false;
+const sfxBuy = () => { tone(880, 0, .18, 'triangle', .12); setTimeout(() => tone(1174, 0, .25, 'triangle', .12), 90); };
+function toggleShop(force) {
+  const sh = document.getElementById('shop');
+  const show = force !== undefined ? force : sh.classList.contains('hidden');
+  shopOpen = show;
+  sh.classList.toggle('hidden', !show);
+  if (show) {
+    document.getElementById('shoppetal').textContent = P.petals;
+    document.getElementById('shoptank').textContent = P.shopTank;
+    audio();
+  }
+}
+function buy(kind) {
+  const cost = { oil: 3, treat: 2, tank: 8 }[kind];
+  if (P.petals < cost) { hint("Not enough moonpetals.", 2.5); return; }
+  if (kind === 'oil') {
+    if (P.oil >= P.oilMax - 1) { hint("Your tank is already full.", 2.5); return; }
+    P.oil = Math.min(P.oilMax, P.oil + 40);
+  } else if (kind === 'treat') {
+    const kept = glooms.find(g => g.state === 'kept' || g.state === 'evolved');
+    if (!kept) { hint("No companion walks with you to treat.", 2.5); return; }
+    kept.glow = Math.min(CFG.glowMax, kept.glow + 40);
+    burst(kept.g.position, 0xffd98a, 20, 1.8);
+  } else if (kind === 'tank') {
+    if (P.shopTank >= 3) { hint("The brass can't take more reinforcing.", 2.5); return; }
+    P.shopTank++; applyUpgrades();
+  }
+  P.petals -= cost; P.petalsSpent += cost;
+  updatePetals(); saveGame(); sfxBuy();
+  document.getElementById('shoppetal').textContent = P.petals;
+  document.getElementById('shoptank').textContent = P.shopTank;
+  hint(kind === 'oil' ? "Oil flask poured. The lantern burns steady."
+    : kind === 'treat' ? "A sweet glow-treat. Your companion brightens."
+    : "Tank reinforced. +10 max oil.", 3);
+}
+function interactPress() {
+  if (shopOpen) toggleShop(false);
+  else if (benchPos && Math.hypot(player.position.x - benchPos.x, player.position.z - benchPos.z) < 2.4) {
+    toggleCodex(false); toggleShop(true);
+  }
+  else toggleCodex();
+}
+document.getElementById('shopx').addEventListener('click', () => toggleShop(false));
+document.querySelectorAll('[data-buy]').forEach(b => b.addEventListener('click', () => buy(b.dataset.buy)));
+
+/* ---------- wisp surge ---------- */
+const sfxSurge = () => { [523, 659, 784, 1046].forEach((f, i) => tone(f, i * .07, .3, 'sine', .1)); };
+function wispSurge() {
+  const wisp = glooms.find(g => g.state === 'evolved');
+  if (!wisp) { hint("No evolved wisp walks with you.", 2.5); return; }
+  if (P.surgeCD > 0) { hint("The wisp is still catching its breath (" + Math.ceil(P.surgeCD) + "s).", 2.5); return; }
+  const kind = wisp.kind || 'hearth';
+  const radius = kind === 'ember' ? 8 : 6;
+  const scare = kind === 'ember' ? 5 : 3;
+  const gift = kind === 'mystic' ? 40 : 25;
+  P.surgeCD = 20;
+  surgePos = wisp.g.position.clone();
+  const col = kind === 'ember' ? 0xff8a4d : kind === 'mystic' ? 0x9adfff : 0xffd98a;
+  burst(surgePos, col, 60, radius * 0.7);
+  const ring = new Mesh(new RingGeometry(0.4, 0.75, 40),
+    new MeshBasicMaterial({ color: col, transparent: true, opacity: 0.95, blending: AdditiveBlending, depthWrite: false, side: DoubleSide }));
+  ring.rotation.x = -Math.PI/2; ring.position.copy(surgePos); ring.position.y = 0.12;
+  scene.add(ring);
+  rings.push({ m: ring, life: 0, maxR: radius });
+  sfxSurge();
+  for (const g of glooms) {
+    if (g !== wisp && (g.state === 'wild' || g.state === 'feral') && g.g.position.distanceTo(surgePos) < radius) g.scareT = scare;
+    if (g.state === 'kept' || g.state === 'evolved') g.glow = Math.min(CFG.glowMax, g.glow + gift);
+  }
+  hint({ hearth: "Wisp Surge! Light flares outward.",
+    mystic: "Mystic Surge! Moonlight nourishes your companions.",
+    ember: "Ember Surge! The dark recoils." }[kind], 3.5);
+}
+
 /* ---------- kindle snare ---------- */
 function snare() {
   if (state !== 'play' || P.snareCD > 0) return;
@@ -53993,7 +54204,7 @@ const FITTINGS = [
 ];
 const sfxUpgrade = () => { [392, 523, 659, 784].forEach((f, i) => tone(f, i * .1, .4, 'triangle', .12)); };
 function applyUpgrades() {
-  P.oilMax = CFG.oilMax + P.up.tank * 50;
+  P.oilMax = CFG.oilMax + P.up.tank * 50 + P.shopTank * 10;
   P.snareR = CFG.snareR + P.up.snare * 0.8;
   P.attnRise = CFG.attnRise * Math.pow(0.7, P.up.valve);
   P.oil = Math.min(P.oil, P.oilMax);
@@ -54001,8 +54212,9 @@ function applyUpgrades() {
 }
 function updateUpgradesHUD() {
   const r = n => n === 0 ? '–' : (n === 1 ? 'I' : 'II');
+  const tankExtra = P.shopTank > 0 ? ' +' + (P.shopTank*10) : '';
   document.getElementById('upgrades').textContent =
-    '⚙ Tank ' + r(P.up.tank) + ' · Snare ' + r(P.up.snare) + ' · Valve ' + r(P.up.valve);
+    '⚙ Tank ' + r(P.up.tank) + tankExtra + ' · Snare ' + r(P.up.snare) + ' · Valve ' + r(P.up.valve);
 }
 function buildFittings(room) {
   FITTINGS.forEach((f, idx) => {
@@ -54036,6 +54248,7 @@ function saveGame() {
       caughtTotal: P.caughtTotal, evHearth: P.evHearth, evMystic: P.evMystic,
       evEmber: P.evEmber, petalsGathered: P.petalsGathered, speciesSeen: P.speciesSeen,
       tidesSurvived: P.tidesSurvived, fathersTamed: P.fathersTamed, rekindled: P.rekindled,
+      doorOpen: P.doorOpen, shopTank: P.shopTank, lore: P.lore, petalsSpent: P.petalsSpent,
     }));
   } catch (e) {}
 }
@@ -54053,6 +54266,10 @@ function loadGame() {
     P.tidesSurvived = s.tidesSurvived || 0;
     P.fathersTamed = s.fathersTamed || 0;
     P.rekindled = !!s.rekindled;
+    P.doorOpen = !!s.doorOpen;
+    P.shopTank = s.shopTank || 0;
+    P.lore = s.lore || [];
+    P.petalsSpent = s.petalsSpent || 0;
     updatePetals();
   } catch (e) {}
 }
@@ -54062,11 +54279,15 @@ function loadRoom(name, spawn) {
   clearRoom();
   roomName = name;
   const dark = name === 'cellar';
-  amb.intensity = dark ? 0.16 : (name === 'parlor' && P.rekindled ? 0.9 : 0.55);
+  amb.intensity = dark ? 0.16 : (name === 'parlor' && P.rekindled ? 0.9 : (name === 'garden' ? 0.5 : 0.55));
   hemi.intensity = dark ? 0.12 : 0.35;
   moonFill.intensity = dark ? 0.04 : 0.35;
   if (name === 'parlor') { buildParlor(); spawnMix([['gloom',false],['gloom',false],['gloom',false],['zephyr',false]]); }
   else if (name === 'conservatory') { buildConservatory(); spawnMix([['gloom',true],['gloom',true],['sage',true]]); }
+  else if (name === 'garden') {
+    buildGarden(); spawnMix([['bramble',true],['bramble',true],['gloom',true]]);
+    if (!seen.garden) { seen.garden = true; setTimeout(() => { if (state === 'play') hint("The Walled Garden… moonpetals grow wild here. And something new drifts among them.", 6); }, 900); }
+  }
   else {
     buildCellar();
     spawnMix([['gloom',false],['gloom',false],['zephyr',false]]);
@@ -54111,8 +54332,12 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyQ') P.setFlame(P.flame - 1);
   if (e.code === 'KeyE') P.setFlame(P.flame + 1);
   if (e.code === 'Space') snare();
-  if (e.code === 'KeyF') toggleCodex();
-  if (e.code === 'Escape' && !document.getElementById('codex').classList.contains('hidden')) toggleCodex();
+  if (e.code === 'KeyF') interactPress();
+  if (e.code === 'KeyX') wispSurge();
+  if (e.code === 'Escape') {
+    if (shopOpen) toggleShop(false);
+    else if (!document.getElementById('codex').classList.contains('hidden')) toggleCodex();
+  }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 
@@ -54144,7 +54369,8 @@ if (isTouch) {
   hold('bSnare', () => snare());
   hold('bFlameUp', () => P.setFlame(P.flame + 1));
   hold('bFlameDn', () => P.setFlame(P.flame - 1));
-  hold('bBook', () => toggleCodex());
+  hold('bBook', () => interactPress());
+  hold('bSurge', () => wispSurge());
 }
 
 /* ---------- HUD / hints / codex ---------- */
@@ -54162,6 +54388,9 @@ function updateHUD() {
   document.getElementById('attnbar').classList.toggle('on', P.attn > 2);
   const kept = glooms.find(g => g.state === 'kept' || g.state === 'evolved');
   if (kept) document.getElementById('glowfill').style.width = (kept.glow / CFG.glowMax * 100) + '%';
+  const wisp = glooms.find(g => g.state === 'evolved');
+  document.getElementById('surge').textContent = !wisp ? '✦ Surge — no wisp'
+    : (P.surgeCD > 0 ? '✦ Surge ' + Math.ceil(P.surgeCD) + 's' : '✦ Surge ready (X)');
 }
 function toggleCodex(force) {
   const cx = document.getElementById('codex');
@@ -54176,8 +54405,12 @@ function toggleCodex(force) {
       '<li>👑 Gloomfathers tamed: <b>' + P.fathersTamed + '</b></li>' +
       (P.rekindled ? '<li>🕯 The Great Lantern: <b>rekindled</b></li>' : '') +
       '<li>✿ Moonpetals gathered: <b>' + P.petalsGathered + '</b></li>' +
+      '<li>✿ Moonpetals spent at the workbench: <b>' + P.petalsSpent + '</b></li>' +
+      (P.doorOpen ? '<li>🚪 The sealed door: <b>opened</b></li>' : '') +
       '<li style="margin-top:8px;color:#9d94c7">Species recorded:</li>' +
       speciesCodex() +
+      (P.lore.length ? '<li style="margin-top:8px;color:#9d94c7">Keeper\'s journal (' + P.lore.length + '/3):</li>' +
+        P.lore.map(i => '<li>📖 <b>' + JOURNAL[i][0] + '</b> — <i>' + JOURNAL[i][1] + '</i></li>').join('') : '') +
       '<li style="margin-top:10px;color:#9d94c7"><i>"Feed them light, Keeper, and the manor remembers."</i></li>';
   }
   cx.classList.toggle('hidden', !show);
@@ -54237,8 +54470,7 @@ function animate() {
     if (transCD <= 0) {
       for (const tr of triggers) {
         if (Math.hypot(player.position.x - tr.x, player.position.z - tr.z) < 1.6) {
-          hint(tr.msg, 2);
-          fadeTo(tr.to, tr.spawn);
+          if (tr.act) tr.act(); else { hint(tr.msg, 2); fadeTo(tr.to, tr.spawn); }
           break;
         }
       }
@@ -54294,6 +54526,7 @@ function animate() {
     if (P.oil < 25 && !seen.oilLow) { seen.oilLow = true; hint("Oil runs low — rest by the candles."); }
     if (P.oil > 40) seen.oilLow = false;
     P.snareCD = Math.max(0, P.snareCD - dt);
+    P.surgeCD = Math.max(0, P.surgeCD - dt);
 
     // gloom attention → gloomtide
     if (P.flame === CFG.flames.length - 1) P.attn = Math.min(100, P.attn + P.attnRise * dt);
@@ -54316,6 +54549,19 @@ function animate() {
         if (!P.evEmber) need.push('an Ember wisp');
         hint("The Great Lantern sleeps… it longs for three lights: " + need.join(', ') + ".", 5);
       }
+    }
+    // sealed door + workbench hints
+    doorHintCD = Math.max(0, doorHintCD - dt);
+    benchHintCD = Math.max(0, benchHintCD - dt);
+    if (roomName === 'cellar' && !P.doorOpen && doorHintCD <= 0 &&
+        Math.hypot(player.position.x - 11.9, player.position.z - 6) < 3.5) {
+      doorHintCD = 25;
+      hint("A boarded door… something with real fire could burn through. (An Ember wisp)", 5);
+    }
+    if (roomName === 'parlor' && benchPos && !shopOpen && benchHintCD <= 0 &&
+        Math.hypot(player.position.x - benchPos.x, player.position.z - benchPos.z) < 2.6) {
+      benchHintCD = 30;
+      hint("The workbench… press F to spend moonpetals.", 4);
     }
 
     // lantern flicker
@@ -54348,6 +54594,18 @@ function animate() {
       ft.g.position.y = Math.sin(t*2 + ft.ph)*0.12;
       if (Math.hypot(player.position.x - ft.x, player.position.z - ft.z) < 1.25) collectFitting(ft);
     }
+    // journal page pickups
+    for (let i = lorePages.length-1; i >= 0; i--) {
+      const lp = lorePages[i];
+      lp.paper.rotation.y += dt*0.8;
+      lp.g.position.y = Math.sin(t*2 + lp.ph)*0.1;
+      if (Math.hypot(player.position.x - lp.x, player.position.z - lp.z) < 1.3) {
+        P.lore.push(lp.idx); saveGame();
+        roomGroup.remove(lp.g); lorePages.splice(i, 1);
+        sfxPetal(); burst(new Vector3(lp.x, 0.8, lp.z), 0xfff2cc, 18, 1.6);
+        hint("Journal page — “" + JOURNAL[lp.idx][0] + "” (read it in the Book)", 5);
+      }
+    }
   }
 
   for (const g of glooms) g.update(dt, t);
@@ -54376,7 +54634,7 @@ function animate() {
     const r = rings[i]; r.life += dt;
     const k = r.life / 0.55;
     if (k >= 1) { scene.remove(r.m); r.m.geometry.dispose(); r.m.material.dispose(); rings.splice(i,1); continue; }
-    const s = 0.4 + k * P.snareR;
+    const s = 0.4 + k * (r.maxR || P.snareR);
     r.m.scale.set(s/0.75, s/0.75, 1);
     r.m.material.opacity = 0.95 * (1-k);
   }
